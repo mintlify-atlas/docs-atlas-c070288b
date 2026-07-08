@@ -1,13 +1,13 @@
 ---
 title: "Plugin Manager: Install & Manage OwnPay Extensions"
 sidebarTitle: "Plugins"
-description: "Install, activate, deactivate, and manage gateway, addon, and theme plugins that extend your OwnPay platform's capabilities."
+description: "Install, activate, deactivate, and manage gateway, addon, and theme plugins that extend your self-hosted OwnPay platform capabilities."
 ---
 
-The Plugins manager is the central hub for extending OwnPay beyond its core functionality. Every payment processor connector, utility addon, and checkout theme is packaged as a plugin and managed from this single screen. OwnPay ships with over 123 bundled gateway plugins covering global, regional, and crypto payment networks — all toggled on or off without touching a single configuration file.
+The Plugins manager is the central hub for extending OwnPay beyond its core functionality. Every payment processor connector, utility addon, and checkout theme is packaged as a plugin and managed from this single screen. Extensions are grouped into three categories — Gateways, Addons, and Themes — and can be installed, activated, or deactivated without touching configuration files.
 
 <Info>
-  Plugins run under a secure sandbox (`PluginSandbox`) that scans PHP files at load time and blocks dangerous functions such as `eval`, `exec`, `shell_exec`, `system`, `passthru`, `popen`, and `proc_open`. Always source plugins from trusted publishers.
+  Plugins run under a secure sandbox (`PluginSandbox` or `PluginLoader`) to isolate third-party code. Manifest slugs in database records must match filesystem folder names exactly. Always source plugins from trusted publishers.
 </Info>
 
 ## Accessing the Plugin Manager
@@ -29,7 +29,7 @@ The Plugins manager organizes extensions into filterable tabs:
 
 <CardGroup cols={2}>
   <Card title="Gateways" icon="credit-card">
-    Payment processor connectors such as Stripe, SSLCommerz, bKash API, Nagad, Razorpay, Flutterwave, and 117 more. Activating a gateway makes it available in the Payment Gateways configuration list.
+    Payment processor connectors such as Aamarpay, SSLCommerz, and Stripe. Activating a gateway makes it available in the Payment Gateways configuration list.
   </Card>
   <Card title="Addons" icon="puzzle-piece">
     Backend utility integrations: `mail-gateway` for transactional email, `sms-gateway` for SMS notifications, and `telegram-bot` for real-time payment alerts.
@@ -94,31 +94,6 @@ Developers can upload custom-built or third-party plugins as `.zip` archives dir
 
 ---
 
-## CLI Plugin Management
-
-For server administrators who prefer the command line, OwnPay provides dedicated CLI commands for managing plugins without accessing the admin panel.
-
-**List all installed plugins and their status:**
-```bash
-php public/index.php plugin:list
-```
-
-**Enable (activate) a plugin by its slug:**
-```bash
-php public/index.php plugin:enable <plugin-slug>
-```
-
-**Disable (deactivate) a plugin by its slug:**
-```bash
-php public/index.php plugin:disable <plugin-slug>
-```
-
-<Note>
-  The plugin `slug` must match the `slug` field in the plugin's `manifest.json` and the filesystem folder name exactly. Renaming plugin directories via FTP or a file manager will break database manifest lookups.
-</Note>
-
----
-
 ## Plugin Sandbox & Security
 
 OwnPay enforces the following security constraints on all plugins:
@@ -128,11 +103,7 @@ OwnPay enforces the following security constraints on all plugins:
 </Accordion>
 
 <Accordion title="Dynamic logo resolution">
-  Plugin logos are copied from the `modules/` directory to `public/assets/img/gateways/` on demand using `PluginManager::resolveIconPath()`. Only image file extensions are accepted — non-image extensions are rejected automatically.
-</Accordion>
-
-<Accordion title="PSR-4 namespace isolation">
-  Each plugin registers its own PSR-4 autoloader, realpath-contained to its plugin directory, preventing namespace collisions between plugins.
+  Plugin logos are copied from the `modules/` directory to the public assets directory on demand when the logo is rendered. Only image file extensions are accepted — non-image extensions are rejected automatically.
 </Accordion>
 
 ---

@@ -1,7 +1,7 @@
 ---
 title: "Balance Verification — Ledger Reconciliation in OwnPay"
 sidebarTitle: "Balance Verification"
-description: "Run financial reconciliation checks that compare your internal double-entry ledger against gateway transaction totals to detect and investigate discrepancies."
+description: "Run OwnPay's balance verification to compare your internal ledger against gateway transaction totals and detect financial discrepancies."
 ---
 
 Balance Verification is OwnPay's built-in financial reconciliation tool. It performs an automated comparison between two independent views of your financial data: the **internal ledger** (calculated from double-entry accounting entries in the database) and the **gateway transaction records** (the sum of all actual completed payments). When these two figures match, your books are balanced. When they diverge, OwnPay surfaces the variance so you can investigate before it compounds into a larger discrepancy. Running verification checks regularly is a key discipline for any operator managing real payment volumes.

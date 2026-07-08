@@ -12,22 +12,11 @@ In the OwnPay admin dashboard, expand the **MOBILE & SMS** section in the left s
 
 ## Device Requirements
 
-Before pairing, ensure the Android device meets the following requirements:
+Before pairing, ensure your Android device has the **OwnPay Companion App** installed, SMS read permission granted to the app, and the app excluded from battery optimisation so its background service is not paused by the OS.
 
-<CardGroup cols={2}>
-  <Card title="Android 8.0 or higher" icon="android" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
-    The OwnPay Companion App requires Android 8.0 (Oreo, API level 26) or later. Lower Android versions do not support the persistent background service architecture the app relies on.
-  </Card>
-  <Card title="OwnPay SMS Agent app installed" icon="mobile-screen" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
-    The OwnPay Companion App must be installed from the OwnPay distribution channel. It requires SMS read permission and must be excluded from battery optimisation to run reliably in the background.
-  </Card>
-  <Card title="SMS permissions granted" icon="envelope" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
-    The app must be granted permission to read incoming SMS messages. Without this permission, incoming wallet notifications will not be forwarded to the server.
-  </Card>
-  <Card title="Battery optimisation disabled" icon="battery-full" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
-    Android's battery optimisation will pause background services on idle devices. Exclude the OwnPay Companion App from battery optimisation in the device's power management settings.
-  </Card>
-</CardGroup>
+<Warning>
+  If the Android companion app is subject to battery optimisation, the OS may pause its background service on an idle device. This leads to SMS forwarding delays and missed payment verifications. Exclude the app from battery optimisation in the device's power management settings before pairing.
+</Warning>
 
 ## Dashboard Overview
 

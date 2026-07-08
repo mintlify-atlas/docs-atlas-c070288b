@@ -1,7 +1,7 @@
 ---
-title: "Inviting and Managing Staff Members in OwnPay"
+title: "Staff Accounts — Invite, Assign Roles, and Set Permissions"
 sidebarTitle: "Staff"
-description: "Invite team members, assign roles and brand access, enforce least-privilege permissions, and deactivate staff accounts from the OwnPay admin panel."
+description: "Create staff accounts, assign roles and brand access, configure individual permissions, and manage team members in the OwnPay admin panel."
 ---
 
 OwnPay does not allow self-registration — every staff member who needs access to the admin dashboard must be explicitly invited and created by the super-administrator or a user with the `manage_staff` permission. This design ensures that access to sensitive payment data is always deliberate and auditable. Each staff account is scoped to specific brands, carries a defined role, and can be suspended or deleted at any time without affecting transaction records.
@@ -97,15 +97,6 @@ To temporarily suspend a staff member's access without deleting their account:
 
 Suspended accounts retain all their role assignments, brand scoping, and activity history — making it straightforward to reactivate them if needed.
 
-## Removing a Staff Account
-
-To permanently remove a staff member:
-
-1. Open the staff member's **Edit** form.
-2. Click the **Delete** action and confirm the prompt.
-
-Deleting a staff account does not delete their entries in the Audit Log. Historical actions taken by the account remain visible under their user reference in the activity trail.
-
 ## Best Practices
 
 <CardGroup cols={2}>
@@ -118,7 +109,7 @@ Deleting a staff account does not delete their entries in the Audit Log. Histori
   <Card title="Apply least privilege" icon="lock" href="/user-guide/people/roles">
     Only grant the specific permissions each staff member needs for their role. A support agent handling customer queries rarely needs gateway management or webhook access.
   </Card>
-  <Card title="Suspend before delete" icon="user-slash" href="/user-guide/people/staff#deactivating-a-staff-account">
-    Suspend an account first to immediately revoke access, then review the Audit Log for any recent actions before permanently deleting the record.
+  <Card title="Suspend to revoke access" icon="user-slash" href="/user-guide/people/staff#deactivating-a-staff-account">
+    Suspend an account to immediately revoke dashboard access. Suspended accounts retain their role assignments and activity history and can be reactivated if needed.
   </Card>
 </CardGroup>

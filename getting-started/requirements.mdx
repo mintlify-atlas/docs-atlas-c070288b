@@ -1,5 +1,5 @@
 ---
-title: "OwnPay Server and Hosting Requirements"
+title: "OwnPay Server, PHP Extensions, and Hosting Requirements"
 sidebarTitle: "Requirements"
 description: "Minimum and recommended server specs, required PHP extensions, hosting compatibility, cron job syntax, and optional performance enhancements for OwnPay."
 ---
@@ -34,7 +34,6 @@ All of the extensions listed below must be enabled on your server. Most modern s
 | `php-gd` | Image manipulation for logos and receipts |
 | `php-bcmath` | Arbitrary-precision arithmetic for financial calculations |
 | `php-intl` | Internationalization and locale formatting |
-| `php-mbstring` | Multi-byte string handling for international character sets |
 
 <Tip>
   The OwnPay web installer runs an automated requirements check on its first screen and flags any missing extensions with a red indicator. You will not be able to proceed past that screen until all extensions are green.
@@ -134,14 +133,11 @@ These components are not required to run OwnPay but are strongly recommended for
 
 ## Mobile SMS Gateway Requirements
 
-The optional mobile SMS gateway feature — which automatically parses mobile-banking SMS alerts from providers like bKash and Nagad — requires an Android device to be paired with OwnPay.
+The optional mobile SMS gateway feature — which automatically parses mobile-banking SMS alerts from providers like bKash and Nagad — requires a local Android device connected to your OwnPay installation.
 
 | Requirement | Specification |
 |-------------|--------------|
-| **Android version** | 8.0 (Oreo) or higher |
-| **SIM card** | Active mobile money account (bKash, Nagad, or compatible) |
-| **Network** | Persistent internet connection for the paired device |
-| **OwnPay companion app** | Required on the Android device |
+| **Android Device** | Required for SMS automation features (optional) |
 
 <Info>
   The Android SMS gateway is an optional feature and is not needed for standard payment processing via Stripe, PayPal, or other plugin-based gateways. It is specifically for operators who need to automate local mobile-money payment verification.

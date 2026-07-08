@@ -1,7 +1,7 @@
 ---
-title: "Managing Currencies & Exchange Rates in OwnPay"
+title: "Currencies and Exchange Rates — OwnPay Configuration"
 sidebarTitle: "Currencies & Rates"
-description: "Configure your brand's base currency, set automatic or manual exchange rates, and manage checkout session expiry and invoice due dates."
+description: "Configure the base currency, automatic or manual exchange rates, checkout session expiry, and invoice due days for your OwnPay brand."
 ---
 
 The Currencies & Rates panel governs how OwnPay prices and converts transactions across your brand's checkout flows. Every brand operates with a single base (default) currency that anchors its ledger, reporting, and invoice totals. When customers pay in a different currency, OwnPay applies the configured exchange rate to calculate the correct amount. Administrators also control how long a checkout session stays alive before expiring and how many days an invoice remains open before becoming overdue.
@@ -23,13 +23,8 @@ The following currencies are available as the default base currency:
 | BDT | Bangladeshi Taka | ৳ |
 | USD | US Dollar | $ |
 | EUR | Euro | € |
-| GBP | British Pound Sterling | £ |
+| GBP | British Pound | £ |
 | INR | Indian Rupee | ₹ |
-| AUD | Australian Dollar | A$ |
-| CAD | Canadian Dollar | C$ |
-| SGD | Singapore Dollar | S$ |
-| MYR | Malaysian Ringgit | RM |
-| PKR | Pakistani Rupee | ₨ |
 
 <Note>
   OwnPay stores currency codes following the ISO 4217 three-letter standard. Always use the three-character code (e.g. `BDT`, `USD`) when referencing currencies in API calls or plugin configurations — do not use currency symbols.

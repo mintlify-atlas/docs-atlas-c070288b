@@ -1,7 +1,7 @@
 ---
-title: "Creating and Managing Brands in OwnPay"
+title: "Brands — White-Label Storefronts and Custom Domains"
 sidebarTitle: "Brands"
-description: "Create isolated white-label merchant storefronts, configure custom domains, assign gateways and staff, and manage brand-level checkout settings."
+description: "Create and configure isolated white-label merchant brands with custom domains, visual branding, and staff access control in OwnPay."
 ---
 
 In OwnPay, a **brand** is a fully isolated merchant storefront that operates under its own domain, visual identity, currency, and staff access controls. The primary administrator can run multiple brands from a single OwnPay installation — each brand has its own checkout URL, logo, colour palette, and gateway assignments, completely shielding the underlying OwnPay platform from customers. This architecture is ideal for agencies, holding companies, or any operator managing payments for more than one business entity.
@@ -80,19 +80,6 @@ OwnPay's white-label system completely replaces the platform branding with your 
   Use **Custom CSS Overrides** to match your checkout page to your main website. Even small changes — matching the font family or button border radius — significantly improve customer trust and reduce checkout abandonment.
 </Tip>
 
-## Assigning Gateways to a Brand
-
-Each brand activates only the payment gateways relevant to it. To assign gateways:
-
-1. Open the brand's **Edit** form.
-2. Navigate to the **Gateways** section within the brand settings.
-3. Toggle on each gateway this brand should offer at checkout.
-4. Click **Save**. Only enabled gateways will appear on this brand's checkout pages.
-
-<Note>
-  A gateway must be globally configured and set to **Active** on the Payment Gateways page before it can be assigned to any brand. Gateways in **Test Mode** will show an amber indicator in the brand's gateway list.
-</Note>
-
 ## Assigning Staff to a Brand
 
 Staff members must be explicitly scoped to the brands they manage. A staff account that is not assigned to a brand cannot access or process payments for that brand.
@@ -107,12 +94,3 @@ To assign a staff member:
   If a staff member attempts to access a brand they are not assigned to, the system's role access controls will block the request. Always verify brand assignment when onboarding new team members or when a staff member reports being unable to see transactions for a specific storefront.
 </Warning>
 
-## Brand Public Checkout URL
-
-Once a custom domain is configured and DNS is propagated, the brand's public checkout URL takes the form:
-
-```
-https://pay.yourbrand.com/checkout/{token}
-```
-
-Payment links and invoice URLs generated under this brand will automatically use the custom domain. If no custom domain is configured, the checkout falls back to the OwnPay server's default domain with the brand's `merchant_id` in the path.

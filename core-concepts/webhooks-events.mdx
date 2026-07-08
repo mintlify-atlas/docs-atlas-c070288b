@@ -1,5 +1,5 @@
 ---
-title: "Webhooks and Events Architecture in OwnPay"
+title: "OwnPay Webhooks: Events, Signatures, and Retry Logic"
 sidebarTitle: "Webhooks & Events"
 description: "How OwnPay dispatches HMAC-signed webhook events, retry schedules, delivery logs, signature verification, and the payment.completed payload structure."
 ---
@@ -15,25 +15,26 @@ When a payment event occurs — for example, a gateway confirms a successful pay
 3. Places the signed request in the delivery queue
 4. Dispatches an HTTP POST to your registered `callback_url` within the same request cycle (or immediately after, via the background queue)
 
-Your endpoint must respond with an HTTP `2xx` status code within **10 seconds**. If it does not, OwnPay considers the delivery failed and schedules a retry.
+Your endpoint must respond with an HTTP `2xx` status code within **30 seconds**. If it does not, OwnPay considers the delivery failed and schedules a retry.
 
 <Warning>
-  Do not perform slow operations (database writes, email sending, external API calls) inline in your webhook handler. Respond with `200 OK` immediately after signature verification, then process the event asynchronously in a background job or queue worker. Slow handlers that miss the 10-second window will trigger unnecessary retries.
+  Do not perform slow operations (database writes, email sending, external API calls) inline in your webhook handler. Respond with `200 OK` immediately after signature verification, then process the event asynchronously in a background job or queue worker. Slow handlers that miss the 30-second window will trigger unnecessary retries.
 </Warning>
 
 ## Automatic Retry Schedule
 
-If your endpoint fails to respond with `2xx` within 10 seconds, or returns a `4xx` / `5xx` status, OwnPay retries delivery on the following schedule:
+If your endpoint fails to respond with `2xx` within 30 seconds, or returns a `4xx` / `5xx` status, OwnPay retries delivery on the following schedule:
 
 | Attempt | Delay After Previous Failure |
 |---------|------------------------------|
-| Retry 1 | 1 minute |
+| Retry 1 | 30 seconds |
 | Retry 2 | 5 minutes |
 | Retry 3 | 30 minutes |
 | Retry 4 | 2 hours |
-| Retry 5 | 12 hours |
+| Retry 5 | 8 hours |
+| Retry 6 | 24 hours |
 
-After 5 failed retries, the delivery is marked as permanently failed. You can manually re-trigger delivery from the webhook delivery logs. Transient server issues, deployments, or network blips during the initial delivery are covered by this retry window without any data loss.
+After 6 failed retries, the delivery is marked as permanently failed. You can manually re-trigger delivery from the webhook delivery logs. Transient server issues, deployments, or network blips during the initial delivery are covered by this retry window without any data loss.
 
 ## HMAC-SHA256 Signature
 
@@ -184,12 +185,10 @@ The `payment.completed` event is the most commonly handled webhook event. It fir
     | Event | Fired When |
     |-------|-----------|
     | `payment.created` | A new payment intent is created |
-    | `payment.pending` | The customer opens the checkout page |
-    | `payment.processing` | The customer submits payment details |
     | `payment.completed` | Gateway confirms successful authorization |
     | `payment.failed` | Gateway declines the payment |
-    | `payment.cancelled` | Payment is explicitly cancelled before completion |
     | `payment.refunded` | A completed payment is reversed by a refund |
+    | `payment.cancelled` | Payment is explicitly cancelled before completion |
     | `payment.disputed` | A chargeback is initiated by the customer's bank |
   </Accordion>
   <Accordion title="Customer Events" icon="user">

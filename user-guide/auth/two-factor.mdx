@@ -1,5 +1,5 @@
 ---
-title: "Two-Factor Authentication (2FA) Setup & Usage"
+title: "Two-Factor Authentication (2FA) Login Verification"
 sidebarTitle: "Two-Factor Auth"
 description: "Enable and use TOTP-based two-factor authentication on your OwnPay account to add a critical second layer of identity verification at login."
 ---
@@ -8,32 +8,11 @@ Two-factor authentication (2FA) is one of the most effective defenses against un
 
 ## Enabling 2FA on Your Account
 
-2FA is configured per account from the **My Account** settings page. The super-administrator should enable it on all privileged accounts.
+2FA is configured per account from the [My Account](/user-guide/account/my-account) settings page. Navigate there to enable or disable 2FA on your user profile. The super-administrator should ensure 2FA is active on all privileged accounts.
 
-<Steps>
-  <Step title="Open Account Settings">
-    Log in to the OwnPay admin panel, then click your avatar or username in the top-right **User Menu** and select **My Account** (or navigate to `/account/settings`).
-  </Step>
-  <Step title="Locate the Two-Factor Authentication section">
-    Scroll to the **Security** section of the account settings page. You will see a **Two-Factor Authentication** toggle currently set to disabled.
-  </Step>
-  <Step title="Click Enable 2FA">
-    Toggle 2FA on. The system will generate a unique TOTP secret and display a **QR code** for you to scan.
-  </Step>
-  <Step title="Scan the QR code with your authenticator app">
-    Open your preferred authenticator app on your mobile device and use its camera/scan function to scan the QR code displayed on screen. The app will add an **OwnPay** entry mapped to your login email.
-  </Step>
-  <Step title="Verify the setup with a live code">
-    Your authenticator app will immediately begin generating 6-digit codes that rotate every 30 seconds. Enter the current code into the **Verification Code** field on the setup screen and click **Confirm**. This proves the pairing succeeded before 2FA is activated.
-  </Step>
-  <Step title="Store your backup information securely">
-    After confirming, save any recovery information provided (such as backup codes or the TOTP secret string) in a secure password manager. You will need these if you lose access to your authenticator app.
-  </Step>
-</Steps>
-
-<Warning>
-  Once 2FA is enabled, it cannot be bypassed at login. If you lose your authenticator device and have no backup codes, a super-administrator must manually revoke and re-enable 2FA on your account from the Staff settings page.
-</Warning>
+<Note>
+  Once 2FA is enabled, it cannot be bypassed at login. If you lose access to your authenticator device and have no backup recovery keys, a super-administrator must manually revoke and re-enable 2FA on your account from the Staff settings page.
+</Note>
 
 ## Using 2FA at Login
 
@@ -80,20 +59,16 @@ Each time you log in with a 2FA-enabled account, you are automatically redirecte
   Submitting too many invalid codes will trigger the rate limiter and lock you out from further attempts for **5 minutes**. This prevents brute-force attacks against the 6-digit code space.
 </Accordion>
 
-## Recovery and Backup Considerations
+## Recovery Considerations
+
+If you lose access to your authenticator app, recovery requires administrator intervention — there is no self-service bypass.
 
 <CardGroup cols={2}>
-  <Card title="Backup Codes" icon="file-shield" href="/user-guide/auth/two-factor">
-    Store the TOTP backup codes generated during setup in a secure, offline password manager. These codes allow one-time access if your primary authenticator device is unavailable.
+  <Card title="Protect Your Backup Keys" icon="eye-slash" href="/user-guide/auth/two-factor">
+    Never share your 2FA secret key or backup recovery keys with anyone. Do not expose them to unauthorized users or transmit them over unencrypted channels.
   </Card>
   <Card title="Admin-Assisted Recovery" icon="user-gear" href="/user-guide/auth/login">
-    If all backup options are exhausted, a super-administrator can revoke the 2FA secret from the Staff settings page, allowing you to set up a fresh authenticator pairing on your next login.
-  </Card>
-  <Card title="Multiple Devices" icon="mobile" href="/user-guide/auth/two-factor">
-    Some authenticator apps (such as Authy) support multi-device sync. Consider enabling this so you have a fallback device if your primary phone is lost or damaged.
-  </Card>
-  <Card title="Never Share Your Secret" icon="eye-slash" href="/user-guide/auth/two-factor">
-    The TOTP secret key and QR code displayed during setup are unique to your account. Never share them, screenshot them to unsecured locations, or transmit them over unencrypted channels.
+    If you lose access to your authenticator device and cannot recover independently, a super-administrator can revoke the 2FA secret from the Staff settings page, allowing you to re-enable 2FA on your next login.
   </Card>
 </CardGroup>
 
@@ -104,7 +79,7 @@ Each time you log in with a 2FA-enabled account, you are automatically redirecte
 | `Invalid or expired 2FA code` | Device clock is out of sync, or the code expired before submission. | Set your phone's time to **automatic/network time**. Then wait for the next fresh code and enter it quickly. |
 | `2FA secret could not be decrypted` | Server decryption key mismatch — typically after a key rotation. | Contact your super-administrator to revoke and re-enable 2FA on your account. |
 | `Rate limit exceeded` | Too many incorrect code submissions in a short period. | Wait **5 minutes**, then log in again from the start. |
-| Lost authenticator app access | Device lost, factory reset, or app data deleted. | Use a saved backup code or have your super-administrator reset 2FA from the Staff settings page. |
+| Lost authenticator app access | Device lost, factory reset, or app data deleted. | Use a saved backup recovery key if available, or have your super-administrator revoke and re-enable 2FA from the Staff settings page. |
 
 ## Related Pages
 

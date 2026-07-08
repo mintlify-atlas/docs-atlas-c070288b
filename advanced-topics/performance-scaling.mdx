@@ -1,7 +1,7 @@
 ---
-title: "OwnPay Performance Tuning and Scaling Guide"
+title: "OwnPay Performance Tuning and Horizontal Scaling Guide"
 sidebarTitle: "Performance"
-description: "Configure OwnPay for high-volume payment processing — cron jobs, database indexes, PHP-FPM tuning, Redis queues, horizontal scaling, CDN, and health check monitoring."
+description: "Tune OwnPay for high-volume payment processing — PHP-FPM, database indexes, Redis queues, cron jobs, horizontal scaling, and health monitoring."
 ---
 
 OwnPay is engineered for performance: composite database indexes on every `merchant_id` column, stored generated columns for JSON field lookups, a Redis-backed cache and queue, OPcache with JIT, and idempotency middleware that prevents duplicate charges under retry load. This guide walks through each layer from cron configuration to horizontal scaling architecture.

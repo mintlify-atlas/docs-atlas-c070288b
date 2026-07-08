@@ -1,10 +1,10 @@
 ---
 title: "Managing Customer Profiles and Transaction History"
 sidebarTitle: "Customers"
-description: "Browse, create, and manage customer profiles with encrypted PII, view lifetime transaction history, and understand auto-registration from checkout flows."
+description: "Browse and manage customer profiles, view lifetime transaction history, and learn how OwnPay auto-registers customers from checkout flows."
 ---
 
-The Customers section of OwnPay is a centralised directory of every client who has interacted with your brand — whether they paid through a checkout link, settled an invoice, or were manually registered by your team. Each customer profile stores contact information, a full transaction history, and a lifetime spending total, giving administrators a complete picture of customer value at a glance. All personally identifiable information (PII) is encrypted at rest, and access to full customer records is gated by role permissions.
+The Customers section of OwnPay is a centralised directory of every client who has interacted with your brand — whether they paid through a checkout link, settled an invoice, or were manually registered by your team. Each customer profile stores contact information, a full transaction history, and a lifetime spending total, giving administrators a complete picture of customer value at a glance. Customer data is encrypted in the database, and staff role restrictions may mask or block access to contact records depending on permissions.
 
 ## Navigating to Customers
 
@@ -16,22 +16,12 @@ The list view presents all registered customers for the active brand in a search
 
 - **KPI Card** — Displays the total customer count for the brand at the top of the page.
 - **Search Toolbar** — Search across customers by name, email address, or phone number.
-- **Customers Table** — Each row shows the customer's Name and internal ID, masked Email, masked Phone, transaction volume count, Total Spent (in the brand's base currency), and registration date.
-- **Actions** — **View** opens the full customer profile with unmasked PII and transaction history. **Delete** permanently removes the profile.
+- **Customers Table** — Each row shows the customer's Name and internal ID, Email, Phone, transaction volume count, Total Spent (in the brand's base currency), and registration date.
+- **Actions** — **View** opens the full customer profile with their transaction history. **Delete** permanently removes the profile.
 
 <Note>
-  Customer PII — name, email, and phone number — is stored using **AES-256-GCM encryption** in the database. The list view intentionally masks these fields (e.g. `jo**@exam**.com`) to prevent casual exposure. Full contact details are only revealed on the individual customer profile page, which requires the `manage_customers` or `view_customers` permission to access.
+  Customer data is encrypted in the database. Ensure that you have the appropriate permissions to view customer profiles, as staff role restrictions may mask or block access to email and phone records.
 </Note>
-
-## Viewing a Customer Profile
-
-Click **View** next to any customer in the list to open their full profile. The profile page displays:
-
-- **Contact details** — unmasked name, email, and phone number.
-- **Lifetime metrics** — total number of transactions and aggregate amount spent.
-- **Transaction history** — a paginated table listing every payment, invoice, and checkout linked to this customer, including date, gateway used, amount, currency, and final status.
-
-This view is the fastest way to investigate a customer's payment behaviour, look up a specific transaction reference, or verify whether an invoice was settled.
 
 ## Creating a Customer Manually
 
@@ -79,16 +69,9 @@ In all these cases, the system creates a record in the `op_customers` table, sco
   Auto-registered customers have their details collected during the checkout flow itself. You do not need to pre-create customer profiles unless you are planning to issue invoices proactively before any payment has occurred.
 </Note>
 
-## Viewing Transaction History Per Customer
+## Reviewing a Customer's Transaction History
 
-Transaction history is available directly on the customer profile page. To access it:
-
-1. From the **Customers** list, click **View** next to the target customer.
-2. Scroll to the **Transaction History** section on the profile page.
-3. The table lists each transaction with its date, gateway, currency, amount, and status (`completed`, `pending`, `failed`, `refunded`).
-4. Click any transaction row to open the full transaction detail page.
-
-This gives you a complete audit trail for any customer dispute or support inquiry — from the first payment ever made to the most recent one.
+To review all payments linked to a customer, navigate to the **Customers** list and click **View** next to the target customer. The profile page shows their lifetime transaction count, total amount spent, and a full list of all historical invoices and payments associated with that account. This view is the fastest way to investigate a customer's payment behaviour or verify whether a specific invoice was settled.
 
 ## Best Practices
 

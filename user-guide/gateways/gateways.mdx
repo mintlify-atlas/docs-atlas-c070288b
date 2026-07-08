@@ -1,10 +1,10 @@
 ---
-title: "Configuring Payment Gateways in OwnPay"
+title: "Payment Gateways — API and Manual Gateway Configuration"
 sidebarTitle: "Payment Gateways"
-description: "Set up API-based and manual payment gateways, configure test mode, manage gateway status, and control checkout display order per brand."
+description: "Set up API and manual payment gateways, configure credentials, enable SMS verification, and manage gateway status across your OwnPay brands."
 ---
 
-Payment gateways are the engine behind every checkout in OwnPay. The platform supports two distinct gateway categories: **automated plugin gateways** that connect to third-party processors via API (such as Stripe or PayPal), and **manual gateways** that handle local wallet transfers (such as bKash Personal or Nagad Personal) and rely on human or SMS-based verification. Administrators configure all gateways from a single panel, controlling which are available per brand, in what order they appear at checkout, and whether they operate in live or test mode.
+Payment gateways are the engine behind every checkout in OwnPay. The platform supports two distinct gateway categories: **automated plugin gateways** that connect to third-party processors via API (such as Stripe or PayPal), and **manual gateways** that handle local wallet transfers (such as bKash Personal or Nagad Personal) and rely on human or SMS-based verification. Administrators configure all gateways from a single panel, installing API processors or creating custom manual wallets with dynamic input fields and optional SMS auto-verification.
 
 ## Gateway Types
 
@@ -25,7 +25,7 @@ In the OwnPay admin dashboard, expand the **GATEWAYS** section in the left sideb
 
 ## Gateway List View
 
-The list view presents every gateway with its current status at a glance. The status column uses colour-coded indicators — **Active** (green) signals that the gateway is live and accepting payments, **Inactive** (grey) means the gateway is disabled and hidden from checkout, and **Test Mode** (amber) flags that the gateway is running with sandbox credentials and will not process real money.
+The list view presents every gateway with its current status at a glance. The status column uses colour-coded indicators — **Active** (green) signals that the gateway is live and accepting payments, and **Inactive** (grey) means the gateway is disabled and hidden from checkout.
 
 Each row also shows the gateway name, slug, type badge, and an **Edit** action that opens the full configuration form.
 
@@ -41,17 +41,10 @@ Each row also shows the gateway name, slug, type badge, and an **Edit** action t
   <Step title="Enter API credentials">
     On the gateway configuration page, paste your API keys and any required credentials provided by the processor.
   </Step>
-  <Step title="Choose live or test mode">
-    Toggle **Test Mode** to **Off** for live transactions. Leave it **On** if you are still integrating and want to use the processor's sandbox environment.
-  </Step>
   <Step title="Set status to Active and save">
-    Switch the gateway status to **Active** and click **Save**. The gateway is now available for assignment to your brands.
+    Switch the gateway status to **Active** and click **Save**. The gateway is now live and accepting payments.
   </Step>
 </Steps>
-
-<Warning>
-  Never enable **Test Mode** on a gateway that is assigned to a live customer-facing brand. Test mode uses sandbox credentials that accept any card number and will not capture real funds — customers will believe their payment succeeded while your ledger records a worthless test transaction.
-</Warning>
 
 ## Creating a Manual Gateway
 
@@ -95,14 +88,6 @@ Each row also shows the gateway name, slug, type badge, and an **Edit** action t
 | **Min Amount** | No | Lowest accepted payment value. Set to `0` for unlimited. |
 | **Max Amount** | No | Highest accepted payment value. Set to `0` for unlimited. |
 | **Enable SMS Verification** | No | Routes transactions for automatic SMS-based approval via a paired device. |
-
-## Enabling and Disabling Gateways Per Brand
-
-Each brand can activate a subset of the globally configured gateways. Navigate to **People → Brands**, open the target brand's settings, and use the **Gateways** assignment panel to toggle individual gateways on or off for that brand. A gateway must be globally **Active** before it can be assigned to a brand.
-
-## Gateway Ordering and Checkout Priority
-
-The order in which gateways appear on the customer checkout page is controlled by their **priority** value. Lower numbers are displayed first. To reorder, edit each gateway and adjust its priority setting. This allows you to promote preferred payment methods (e.g. placing a high-volume mobile wallet above a credit card processor) without removing any options.
 
 ## SMS Auto-Verification Workflow
 

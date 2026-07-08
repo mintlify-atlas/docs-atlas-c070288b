@@ -1,7 +1,7 @@
 ---
-title: "OwnPay Troubleshooting Guide for Common Issues"
+title: "OwnPay Troubleshooting Guide for Common Production Issues"
 sidebarTitle: "Troubleshooting"
-description: "Diagnose and fix the most common OwnPay issues — invalid API keys, missing webhooks, stuck transactions, CORS errors, SMS mismatches, and 503 degraded status."
+description: "Diagnose and fix common OwnPay issues — invalid API keys, missing webhooks, stuck transactions, CORS errors, SMS mismatches, and 503 degraded status."
 ---
 
 This guide covers the issues OwnPay administrators and integrators encounter most often in production. Each entry follows a consistent structure: symptom → root cause → diagnosis → resolution. Check `storage/logs/php-errors.log` and the slow-query log at `/var/lib/mysql/slow-queries.log` before opening a support ticket — the answer is usually in the logs.

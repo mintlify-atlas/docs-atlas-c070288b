@@ -1,5 +1,5 @@
 ---
-title: "Brands and Stores in OwnPay"
+title: "Brands and Stores: OwnPay Multi-Tenant Architecture"
 sidebarTitle: "Brands & Stores"
 description: "How OwnPay's multi-brand architecture isolates merchant entities, enables white-labeling, and scopes customers, gateways, staff, and APIs per brand."
 ---
@@ -67,8 +67,8 @@ When creating or editing a brand, the following fields are available:
     |-------|-------------|
     | **Logo** | Brand image shown on the checkout page and emails |
     | **Favicon** | Icon shown in the browser tab during checkout |
-    | **Primary Color** | Hex color for buttons and accents on the checkout UI |
-    | **Custom CSS** | Raw CSS injected into the checkout page for advanced styling |
+    | **Color Scheme** | Primary color for buttons and accents on the checkout UI |
+    | **Landing Page** | Custom HTML or text for the brand's public landing page |
     | **Email Templates** | Customizable HTML templates for payment confirmation, receipt, and failure emails |
   </Tab>
   <Tab title="Checkout">
@@ -79,7 +79,6 @@ When creating or editing a brand, the following fields are available:
     | **Payment Methods** | Which of the brand's configured gateways are displayed on checkout |
     | **Success Message** | Custom message displayed after a successful payment |
     | **Failure Message** | Custom message displayed after a declined payment |
-    | **Redirect URL** | Default URL to redirect customers to after checkout completion |
   </Tab>
   <Tab title="Advanced">
     | Field | Description |
@@ -110,8 +109,8 @@ To fully white-label a brand:
   <Step title="Customize Email Templates">
     Edit the email templates in **Settings → Email Templates** to replace any generic language with the brand's name, contact information, and support details.
   </Step>
-  <Step title="Apply Custom CSS (Optional)">
-    For pixel-level control over the checkout appearance, add custom CSS in **Settings → Branding → Custom CSS**. This is injected directly into the checkout page.
+  <Step title="Configure the Landing Page (Optional)">
+    Go to **Settings → Branding → Landing Page** to add custom HTML or text for the brand's public-facing landing page.
   </Step>
 </Steps>
 

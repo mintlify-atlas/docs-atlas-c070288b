@@ -84,38 +84,8 @@ Custom or third-party theme packages can be uploaded as `.zip` archives directly
 </Steps>
 
 <Warning>
-  Never upload unverified theme archives. Like all plugins, themes execute server-side Twig templates and hook into the OwnPay filter system via `checkout.head` and `checkout.footer` events. Only install themes from publishers you trust.
+  Never upload unverified theme archives. Themes execute server-side templates and run with administrative system permissions. Only install themes from publishers you trust.
 </Warning>
-
----
-
-## Per-Brand Theme Selection
-
-OwnPay's `BrandThemeService` injects per-brand visual identity fields — including `logo`, `favicon`, `color`, `accent_color`, `support_email`, `custom_css`, `custom_js`, and `footer_text` — directly into the active theme's Twig templates at render time. This means:
-
-- A single global theme can render differently for each brand based on their configured colors and assets.
-- Per-brand CSS injection (custom styles entered in a brand's settings) is applied on top of the theme styles via the `checkout.head` filter hook.
-- Custom JavaScript injected via a brand's `custom_js` setting fires through the `checkout.footer` filter hook.
-
-<Note>
-  Full per-brand theme overrides (applying a completely different theme template to one brand vs. another) are not a feature of the global Themes manager. All brands share the same active global theme template, differentiated only by their brand-scoped color, logo, and CSS injection settings.
-</Note>
-
----
-
-## The Default `own-pay` Theme
-
-The bundled `own-pay` theme (manifest slug: `own-pay`) is OwnPay's default production-ready checkout theme. It features:
-
-- A responsive double-panel desktop layout with a stacked mobile flow
-- Multi-gateway tab grouping (Mobile Banking, Cards, Internet Banking, Manual)
-- Support for gateway logo grids and express checkout button areas
-- Full CSS custom property support for per-brand primary and accent colors
-- Session countdown timer integration
-
-<Tip>
-  Keep the `own-pay` default theme installed at all times as a fallback. Even if you activate a custom theme, having the default available ensures you can instantly revert if a custom theme has rendering issues.
-</Tip>
 
 ---
 
@@ -130,7 +100,7 @@ The bundled `own-pay` theme (manifest slug: `own-pay`) is OwnPay's default produ
 </Accordion>
 
 <Accordion title="Validate uploaded theme archives">
-  Before uploading a theme `.zip`, verify with the publisher that the manifest slug is unique and that all Twig templates use the approved `checkout.head` and `checkout.footer` filter hooks rather than directly modifying core template files.
+  Before uploading a theme `.zip`, verify with the publisher that the manifest slug is unique and that the archive does not modify core platform files. The theme's slug must match the folder name in the package.
 </Accordion>
 
 ---

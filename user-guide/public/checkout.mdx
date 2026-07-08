@@ -1,5 +1,5 @@
 ---
-title: "Public Checkout: The Customer Payment Experience"
+title: "Public Checkout: OwnPay Customer Payment Experience"
 sidebarTitle: "Public Checkout"
 description: "Understand the white-labeled customer checkout flow — gateway selection, payment forms, manual payments, status pages, and success/cancel redirects."
 ---
@@ -126,15 +126,7 @@ Every element of the checkout interface is white-labeled to the active brand:
 </Accordion>
 
 <Accordion title="Logo and brand colors">
-  The brand's uploaded logo is displayed in the left panel and the right panel header. The brand's primary color is applied to buttons, active tab borders, and progress indicators via CSS custom properties. The accent color is applied to highlights and secondary UI elements.
-</Accordion>
-
-<Accordion title="Custom CSS and JavaScript">
-  Per-brand custom CSS entered in the brand's settings is injected via the `checkout.head` filter hook, enabling pixel-level visual customization. Custom JavaScript is injected via the `checkout.footer` hook for analytics or tracking integrations.
-</Accordion>
-
-<Accordion title="Support email and footer">
-  The brand's configured `support_email` is displayed as a contact link in the payment terminal header. The `footer_text` value appears at the bottom of the checkout page, supporting custom legal or brand copy.
+  The brand's uploaded logo is displayed in the left panel and the right panel header. The brand's primary color is applied to buttons, borders, and active tabs via `BrandThemeService::getBrandTheme($merchantId)`.
 </Accordion>
 
 ---

@@ -1,7 +1,7 @@
 ---
-title: "OwnPay Security and Compliance Best Practices"
+title: "OwnPay Security Hardening and Compliance Best Practices"
 sidebarTitle: "Security"
-description: "Security hardening guidance for OwnPay — AES-256-GCM encryption, HMAC webhook verification, RBAC, 2FA, ledger integrity, TLS, backups, and AGPL-3.0 compliance."
+description: "Security hardening for OwnPay — AES-256-GCM encryption, HMAC webhook verification, RBAC, 2FA, ledger integrity, TLS requirements, and backups."
 ---
 
 OwnPay is built around the assumption that all external input is adversarial. The framework enforces prepared statements, Twig autoescaping, per-request CSRF tokens, SSRF guards, AES-256-GCM encryption at rest, and HMAC-SHA256 webhook signing out of the box. This guide explains what OwnPay provides by default and what you must configure and maintain as the operator of a self-hosted installation.

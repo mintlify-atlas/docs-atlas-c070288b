@@ -1,7 +1,7 @@
 ---
-title: "OwnPay Code Examples for Common Integration Tasks"
+title: "OwnPay Integration Code Examples: PHP and Node.js Guide"
 sidebarTitle: "Code Examples"
-description: "Ready-to-use PHP and Node.js code examples for creating payments, verifying webhooks, polling status, listing transactions, issuing refunds, and managing customers."
+description: "PHP and Node.js examples for OwnPay — create payments, verify webhooks, poll status, list transactions, issue refunds, and manage customers."
 ---
 
 These examples cover the most common OwnPay integration tasks using the Merchant REST API (`/api/v1/*`). Every request must be made **from your server** — never from a browser — because API keys must remain private. All code uses real OwnPay API contracts; substitute your brand's base URL (`https://pay.yourbrand.com`) and a valid `write`-scoped API key.
@@ -242,12 +242,12 @@ $baseUrl = 'https://pay.yourbrand.com/api/v1';
 $apiKey  = 'op.xxxxx.xxxxxx'; // read-scoped key is sufficient
 
 $filters = http_build_query([
-    'status'     => 'completed',
-    'gateway'    => 'stripe',
-    'date_from'  => '2024-01-01',
-    'date_to'    => '2024-01-31',
-    'per_page'   => 25,
-    'page'       => 1,
+    'status'   => 'completed',
+    'gateway'  => 'stripe',
+    'from'     => '2026-01-01',
+    'to'       => '2026-01-31',
+    'per_page' => 25,
+    'page'     => 1,
 ]);
 
 $ch = curl_init("$baseUrl/transactions?$filters");
@@ -261,38 +261,38 @@ $result = json_decode(curl_exec($ch), true);
 curl_close($ch);
 
 if ($result['success'] ?? false) {
-    foreach ($result['data']['transactions'] as $txn) {
+    foreach ($result['data'] as $txn) {
         printf(
             "[%s] %s %s %s via %s\n",
             $txn['trx_id'],
             $txn['amount'],
             $txn['currency'],
             $txn['status'],
-            $txn['gateway_slug'],
+            $txn['gateway'],
         );
     }
 
-    $meta = $result['data']['meta'];
-    echo "Page {$meta['current_page']} of {$meta['last_page']} ({$meta['total']} total)\n";
+    $meta = $result['meta'];
+    echo "Page {$meta['page']} of {$meta['total_pages']} ({$meta['total']} total)\n";
 }
 ```
 
 ## Issue a Partial Refund
 
-Call `POST /api/v1/transactions/{trx_id}/refunds` to issue a partial or full refund. The refund amount cannot exceed the original transaction's un-refunded balance.
+Call `POST /api/v1/refunds` to issue a partial or full refund. The refund amount cannot exceed the original transaction's un-refunded balance.
 
 ```php PHP
 <?php
 $baseUrl = 'https://pay.yourbrand.com/api/v1';
 $apiKey  = 'op.xxxxx.xxxxxx'; // write-scoped key required
-$trxId   = 'OP-000012345';
 
 $payload = [
+    'trx_id' => 'OP-000012345',
     'amount' => '150.00',   // partial refund — must be ≤ remaining refundable amount
     'reason' => 'Customer requested partial refund for damaged item',
 ];
 
-$ch = curl_init("$baseUrl/transactions/$trxId/refunds");
+$ch = curl_init("$baseUrl/refunds");
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
@@ -307,7 +307,7 @@ $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
 if ($httpCode === 201 && ($result['success'] ?? false)) {
-    echo 'Refund issued. Refund ID: ' . $result['data']['refund_id'];
+    echo 'Refund issued. UUID: ' . $result['data']['uuid'];
 } else {
     echo 'Refund failed: ' . ($result['error'] ?? 'Unknown error');
 }
@@ -319,7 +319,7 @@ if ($httpCode === 201 && ($result['success'] ?? false)) {
 
 ## Create a Customer
 
-Use `POST /api/v1/customers` to create a customer record. Customer PII (name, email, phone) is encrypted at rest using AES-256-GCM. An email hash is stored for deduplication — creating a customer with a duplicate email returns the existing record.
+Use `POST /api/v1/customers` to create a customer record. Customer PII (name, email, phone) is encrypted at rest using AES-256-GCM. Email must be unique per brand — creating a customer with a duplicate email returns `409 Conflict`.
 
 ```php PHP
 <?php
@@ -327,13 +327,9 @@ $baseUrl = 'https://pay.yourbrand.com/api/v1';
 $apiKey  = 'op.xxxxx.xxxxxx'; // write-scoped key required
 
 $payload = [
-    'name'     => 'Jane Smith',
-    'email'    => 'jane.smith@example.com',
-    'phone'    => '+8801700000000',
-    'metadata' => [
-        'external_id'  => 'USER-9988',
-        'plan'         => 'premium',
-    ],
+    'name'  => 'Jane Smith',
+    'email' => 'jane.smith@example.com',
+    'phone' => '+8801700000000',
 ];
 
 $ch = curl_init("$baseUrl/customers");

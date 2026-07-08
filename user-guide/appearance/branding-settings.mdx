@@ -1,7 +1,7 @@
 ---
 title: "Branding Settings: Logos, Favicons & Site Identity"
 sidebarTitle: "Branding Settings"
-description: "Upload logos and favicons, configure brand colors, set admin panel titles, and manage SEO metadata for your OwnPay platform."
+description: "Upload logos and favicons, configure admin panel titles, and manage SEO metadata and brand taglines for your self-hosted OwnPay platform."
 ---
 
 The Branding Settings tab controls the default visual identity across your entire OwnPay platform. From the browser-tab favicon to the site title that appears in search engine results, every element of how your platform presents itself to the world is configured here. Globally configured assets serve as the platform-wide defaults; individual brands can override these with their own logos and colors through their brand-context settings.
@@ -84,20 +84,6 @@ The Site Identity section configures how your platform is described to search en
 <Note>
   Keep the **Site Meta Description** between 150 and 160 characters. Descriptions shorter than 120 characters may be supplemented by search engines with other page content. Descriptions over 160 characters are typically truncated in search result snippets.
 </Note>
-
----
-
-## Custom CSS Injection
-
-OwnPay supports injecting custom CSS directly into checkout page templates for per-brand visual customization beyond what the standard color fields provide. Custom CSS is managed at the brand context level through the brand's settings, not from the global Branding tab.
-
-<Accordion title="How custom CSS injection works">
-  The `BrandThemeService` resolves each brand's visual identity with field-level priority: brand-scoped settings override global defaults. Custom CSS is injected raw into Twig checkout templates via the `checkout.head` filter hook. Use this to fine-tune typography, spacing, button shapes, or custom animations for a specific brand's checkout pages.
-</Accordion>
-
-<Accordion title="Brand color fields">
-  Each brand can set a **primary color** (used for buttons, borders, and active tabs) and an **accent color** (used for highlights and secondary UI elements). These are resolved at checkout render time by `BrandThemeService::getBrandTheme($merchantId)` and applied as CSS custom properties.
-</Accordion>
 
 ---
 

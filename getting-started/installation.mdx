@@ -1,7 +1,7 @@
 ---
-title: "Install OwnPay on Your Server"
+title: "Installing OwnPay on Shared Hosting or a Linux VPS"
 sidebarTitle: "Installation"
-description: "Complete step-by-step guide to installing OwnPay on shared hosting or a Linux VPS, including Nginx configuration, environment setup, and cron job."
+description: "Complete step-by-step guide to installing OwnPay on shared hosting or a Linux VPS, including Nginx configuration, SSL setup, and cron job."
 ---
 
 OwnPay ships with a built-in web installer. Once you upload the application files, create a database, and configure your web server's document root, the installer wizard handles the rest — including writing your configuration, running database migrations, and creating your master administrator account. No command-line PHP knowledge is required for the core setup.
@@ -84,61 +84,8 @@ OwnPay ships with a built-in web installer. Once you upload the application file
     </Tabs>
 
     <Note>
-      Write down the database name, username, password, and host (`localhost` on most setups). You will enter these values during the web installer and optionally into the `.env` file.
+      Write down the database name, username, password, and host (`localhost` on most setups). You will enter these values during the web installer's database configuration step.
     </Note>
-  </Step>
-
-  <Step title="Configure the .env File">
-    OwnPay reads its core configuration from a `.env` file in the installation root. The web installer writes this file for you, but on a VPS you may prefer to configure it manually before running the installer.
-
-    Copy the example environment file and edit it:
-
-    ```bash
-    cp .env.example .env
-    nano .env
-    ```
-
-    Set the following values at minimum:
-
-    ```bash
-    APP_URL=https://yourdomain.com
-    APP_KEY=                        # Leave blank — installer generates this automatically
-
-    DB_HOST=127.0.0.1
-    DB_DATABASE=ownpay
-    DB_USERNAME=ownpay
-    DB_PASSWORD=STRONG_PASSWORD_HERE
-    ```
-
-    A full example with optional Redis configuration:
-
-    ```bash
-    APP_NAME="My Payment Gateway"
-    APP_URL=https://yourdomain.com
-    APP_KEY=
-    APP_ENV=production
-    APP_DEBUG=false
-
-    DB_HOST=127.0.0.1
-    DB_PORT=3306
-    DB_DATABASE=ownpay
-    DB_USERNAME=ownpay
-    DB_PASSWORD=STRONG_PASSWORD_HERE
-
-    CACHE_DRIVER=file
-    QUEUE_DRIVER=sync
-    SESSION_DRIVER=file
-
-    # Optional Redis configuration (see Step 7)
-    # CACHE_DRIVER=redis
-    # QUEUE_DRIVER=redis
-    # REDIS_HOST=127.0.0.1
-    # REDIS_PORT=6379
-    ```
-
-    <Warning>
-      Never commit your `.env` file to version control. It contains database credentials and, after installation, a generated `APP_KEY` that is used for encryption.
-    </Warning>
   </Step>
 
   <Step title="Configure Nginx (VPS Only)">
@@ -290,16 +237,7 @@ OwnPay ships with a built-in web installer. Once you upload the application file
     sudo systemctl start redis-server
     ```
 
-    Update your `.env` file to use Redis:
-
-    ```bash
-    CACHE_DRIVER=redis
-    QUEUE_DRIVER=redis
-    REDIS_HOST=127.0.0.1
-    REDIS_PORT=6379
-    ```
-
-    Alternatively, change these values in **Settings → System** inside the OwnPay admin panel.
+    After installation, change the cache and queue driver to `redis` in **Settings → System** inside the OwnPay admin panel.
   </Step>
 </Steps>
 

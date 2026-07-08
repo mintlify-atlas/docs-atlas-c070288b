@@ -1,5 +1,5 @@
 ---
-title: "Payment Gateways in OwnPay"
+title: "Payment Gateways: Types, Plugins, and Configuration"
 sidebarTitle: "Gateways"
 description: "How OwnPay gateway types, slugs, plugin architecture, test mode, brand scoping, and checkout ordering work for automated and manual payment methods."
 ---
@@ -68,10 +68,10 @@ When a gateway is in test mode, OwnPay adds a visual `[TEST]` indicator to the c
 
 OwnPay's gateway system is built on a plugin interface. Each gateway — whether built into OwnPay or added as a third-party plugin — implements the same set of methods:
 
-- `charge(amount, currency, paymentData)` — Initiates a payment attempt
-- `handleCallback(request)` — Processes the gateway's async callback
-- `refund(transactionId, amount)` — Issues a full or partial refund
-- `getStatus(transactionId)` — Queries the gateway for the current transaction status
+- `initiate(params, credentials)` — Starts a payment session and returns the checkout URL or redirect data
+- `verify(callbackData, credentials)` — Processes the gateway's async callback and confirms payment status
+- `verifyWebhook(rawBody, headers, credentials)` — Validates the authenticity of an inbound gateway webhook
+- `refund(gatewayTrxId, amount, credentials)` — Issues a full or partial refund
 
 This interface means that from the checkout's perspective and from the payment lifecycle's perspective, all gateways behave identically. The differences are entirely in the plugin's implementation of these methods.
 

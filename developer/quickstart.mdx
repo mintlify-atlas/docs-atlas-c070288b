@@ -309,10 +309,16 @@ All endpoints are relative to your brand's base URL: `https://{your_brand_domain
 | POST   | `/payments`               | `write` | Create a new payment intent                 |
 | GET    | `/payments/{id}`          | `read`  | Retrieve payment details and current status |
 | GET    | `/transactions`           | `read`  | List all transactions with filters          |
-| GET    | `/transactions/{trx_id}`  | `read`  | Retrieve a single transaction by ID         |
-| POST   | `/payment-links`          | `write` | Create a reusable shareable payment link    |
+| GET    | `/transactions/{id}`      | `read`  | Retrieve a single transaction by ID         |
 | POST   | `/refunds`                | `write` | Request a full or partial refund            |
 | GET    | `/refunds`                | `read`  | List refunds                                |
+| GET    | `/refunds/{id}`           | `read`  | Retrieve a single refund by ID              |
+| GET    | `/customers`              | `read`  | List customers                              |
+| POST   | `/customers`              | `write` | Create a customer                           |
+| GET    | `/customers/{identifier}` | `read`  | Retrieve a customer by identifier           |
+| GET    | `/api-keys`               | `read`  | List API keys                               |
+| POST   | `/api-keys`               | `write` | Create an API key                           |
+| DELETE | `/api-keys/{id}`          | `write` | Delete an API key                           |
 | POST   | `/webhooks/tests`         | `write` | Fire a test `payment.completed` event       |
 | GET    | `/webhooks/deliveries`    | `read`  | View recent webhook delivery attempts       |
 | GET    | `/health`                 | None    | System health check (no auth required)      |
