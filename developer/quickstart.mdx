@@ -1,0 +1,357 @@
+---
+title: "Developer Quickstart: Integrate OwnPay in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Get your first payment running with OwnPay in under five minutes. Generate an API key, create a payment, verify webhooks, and test with sandbox cards."
+---
+
+OwnPay is a self-hosted payment gateway platform that exposes a clean REST API for accepting payments, querying transactions, and reacting to real-time events. This guide walks you from zero to a working integration — API key in hand, first payment created, and webhook handler verified — in five minutes or less.
+
+<Steps>
+
+### Generate Your API Key
+
+Every API request is authenticated with a Bearer token issued from your OwnPay admin panel. Keys are shown **only once** at creation time, so store yours in a secrets manager immediately.
+
+1. Log in to your OwnPay admin panel.
+2. Navigate to **Developers** → **Developer Hub**.
+3. Click **Generate API Key**.
+4. Choose a scope — **Full Access** for a live integration, or **Read-Only** for read-only tooling.
+5. Copy both the **Public Key** and **Secret Key** before closing the dialog.
+
+Your keys follow this format:
+
+```
+Public Key:  op_live_abc123xyz...
+Secret Key:  op_secret_def456...
+```
+
+<Warning>
+Never commit API keys to source control. Store them as environment variables and load them at runtime.
+
+```bash
+OWNPAY_PUBLIC_KEY=op_live_...
+OWNPAY_SECRET_KEY=op_secret_...
+OWNPAY_BASE_URL=https://pay.your-domain.com
+```
+</Warning>
+
+---
+
+### Install Your SDK
+
+Choose the SDK that matches your stack. Both clients wrap the same REST API and share identical behavior.
+
+<CodeGroup>
+
+```bash PHP
+composer require ownpay/php-sdk
+```
+
+```bash Node.js
+npm install ownpay
+```
+
+</CodeGroup>
+
+Once installed, initialize the client with your credentials:
+
+<CodeGroup>
+
+```php PHP
+<?php
+
+use OwnPay\SDK\Client;
+
+$client = new Client(
+    publicKey: $_ENV['OWNPAY_PUBLIC_KEY'],
+    secretKey: $_ENV['OWNPAY_SECRET_KEY'],
+    baseUrl:   $_ENV['OWNPAY_BASE_URL'] . '/api/v1'
+);
+```
+
+```javascript Node.js
+import OwnPay from 'ownpay';
+
+const ownpay = new OwnPay({
+  publicKey: process.env.OWNPAY_PUBLIC_KEY,
+  secretKey: process.env.OWNPAY_SECRET_KEY,
+  baseUrl:   process.env.OWNPAY_BASE_URL,
+});
+```
+
+</CodeGroup>
+
+---
+
+### Create Your First Payment
+
+A payment intent represents a pending checkout session. After creating one, redirect your customer to the returned `checkout_url`.
+
+<CodeGroup>
+
+```php PHP
+$payment = $client->payments()->create([
+    'amount'         => 5000,              // amount in minor units (e.g. 5000 = $50.00)
+    'currency'       => 'USD',
+    'customer_email' => 'customer@example.com',
+    'description'    => 'Order #123',
+    'redirect_url'   => 'https://your-store.com/payment/callback',
+    'cancel_url'     => 'https://your-store.com/payment/cancel',
+]);
+
+// Redirect the customer to complete payment
+header('Location: ' . $payment['data']['checkout_url'], true, 302);
+exit;
+```
+
+```javascript Node.js
+const payment = await ownpay.payments.create({
+  amount:         5000,   // in minor units
+  currency:       'USD',
+  customer_email: 'customer@example.com',
+  description:    'Order #123',
+  redirect_url:   `${process.env.APP_URL}/payment/callback`,
+  cancel_url:     `${process.env.APP_URL}/payment/cancel`,
+});
+
+// Redirect the customer
+res.redirect(payment.data.checkout_url);
+```
+
+```bash cURL
+curl -X POST https://pay.your-domain.com/api/v1/payments \
+  -H "Authorization: Bearer op_live_xxx..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": "5000",
+    "currency": "USD",
+    "customer_email": "customer@example.com",
+    "description": "Order #123",
+    "redirect_url": "https://your-store.com/payment/callback",
+    "cancel_url": "https://your-store.com/payment/cancel"
+  }'
+```
+
+</CodeGroup>
+
+A successful response returns a `payment_id`, a one-time `token`, and the `checkout_url` your customer visits to pay:
+
+```json
+{
+  "success": true,
+  "data": {
+    "payment_id": "a810b445-564a-4e20-80a5-f1261d7b328a",
+    "token": "tok_4821a8f902bd3f46",
+    "checkout_url": "https://pay.your-domain.com/checkout/tok_4821a8f902bd3f46",
+    "status": "created"
+  }
+}
+```
+
+<Tip>
+Save the `payment_id` to your database before redirecting — you'll need it to verify payment status in your callback handler and in webhook events.
+</Tip>
+
+---
+
+### Handle Webhooks
+
+OwnPay sends a signed HTTP POST to your webhook endpoint when a payment is completed, failed, or refunded. Always verify the `X-OwnPay-Signature` header before processing any event — it proves the payload originated from your OwnPay instance.
+
+The signature is computed as:
+
+```
+sha256=HMAC-SHA256(webhookSecret, timestamp + "." + rawRequestBody)
+```
+
+**Configure your endpoint first:**
+
+1. Go to **Developer Hub → Webhooks → Add Endpoint**.
+2. Enter your URL: `https://your-store.com/webhooks/ownpay`
+3. Copy the **Webhook Secret** — it is shown only once.
+4. Set `OWNPAY_WEBHOOK_SECRET` in your environment.
+
+Then add the verification handler:
+
+<CodeGroup>
+
+```php PHP
+<?php
+
+declare(strict_types=1);
+
+$payload   = file_get_contents('php://input');
+$signature = $_SERVER['HTTP_X_OWNPAY_SIGNATURE'] ?? '';
+$timestamp = $_SERVER['HTTP_X_OWNPAY_TIMESTAMP']  ?? '';
+$secret    = getenv('OWNPAY_WEBHOOK_SECRET');
+
+// Replay protection: reject events older than 5 minutes
+if (abs(time() - (int) $timestamp) > 300) {
+    http_response_code(400);
+    exit('Timestamp too old');
+}
+
+$expected = 'sha256=' . hash_hmac('sha256', $timestamp . '.' . $payload, $secret);
+
+if (!hash_equals($expected, $signature)) {
+    http_response_code(401);
+    exit('Unauthorized');
+}
+
+$event = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+
+match ($event['event']) {
+    'payment.paid'     => handlePaymentPaid($event['data']),
+    'payment.failed'   => handlePaymentFailed($event['data']),
+    'payment.refunded' => handlePaymentRefunded($event['data']),
+    default            => null,
+};
+
+http_response_code(200);
+echo 'OK';
+```
+
+```javascript Node.js
+import crypto from 'node:crypto';
+
+// Use express.raw() to preserve the raw body for signature verification
+app.post('/webhooks/ownpay', express.raw({ type: 'application/json' }), (req, res) => {
+  const signature = req.headers['x-ownpay-signature'];
+  const timestamp = req.headers['x-ownpay-timestamp'];
+  const secret    = process.env.OWNPAY_WEBHOOK_SECRET;
+
+  // Replay protection: reject events older than 5 minutes
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) {
+    return res.status(400).send('Timestamp too old');
+  }
+
+  const hmac     = crypto.createHmac('sha256', secret)
+    .update(`${timestamp}.${req.body.toString()}`)
+    .digest('hex');
+  const expected = `sha256=${hmac}`;
+
+  if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature))) {
+    return res.status(401).send('Unauthorized');
+  }
+
+  const event = JSON.parse(req.body.toString());
+
+  switch (event.event) {
+    case 'payment.paid':
+      handlePaymentPaid(event.data);
+      break;
+    case 'payment.failed':
+      handlePaymentFailed(event.data);
+      break;
+  }
+
+  res.status(200).send('OK');
+});
+```
+
+</CodeGroup>
+
+<Note>
+Return HTTP `200` as quickly as possible. OwnPay times out after 10 seconds and will retry delivery up to 5 times with exponential backoff (1 min → 5 min → 30 min → 2 h → 12 h). Offload heavy work to a background queue.
+</Note>
+
+---
+
+### Test in Sandbox Mode
+
+Before going live, run your integration against OwnPay's sandbox environment. No real charges are made; all webhooks and order status updates fire exactly as in production.
+
+**Enable Test Mode:**
+
+1. In the admin panel, go to **Gateways**.
+2. Set the active gateway to **Test Mode**.
+3. Use the test card numbers below during checkout.
+
+**Test card numbers:**
+
+| Card Type    | Number                | CVV  | Expiry    | Outcome    |
+|--------------|-----------------------|------|-----------|------------|
+| Visa         | 4111 1111 1111 1111   | Any  | Any future | ✅ Success |
+| Mastercard   | 5555 5555 5555 4444   | Any  | Any future | ✅ Success |
+| Amex         | 3782 8224 6310 005    | Any  | Any future | ✅ Success |
+| Declined     | 4000 0000 0000 0002   | Any  | Any future | ❌ Failure |
+
+**Test your webhook endpoint locally:**
+
+Use one of these tools to expose your local server to the internet:
+
+<CardGroup cols={2}>
+  <Card title="ngrok" icon="globe" href="https://ngrok.com">
+    Tunnel a local port to a public HTTPS URL. Register the ngrok URL as your webhook endpoint in the OwnPay admin panel.
+  </Card>
+  <Card title="Webhook.cool" icon="webhook" href="https://webhook.cool">
+    Temporary webhook URL for inspecting raw payloads before writing your handler.
+  </Card>
+</CardGroup>
+
+You can also fire a test event directly from the OwnPay API:
+
+```bash
+curl -X POST https://pay.your-domain.com/api/v1/webhooks/tests \
+  -H "Authorization: Bearer op_live_xxx..."
+```
+
+</Steps>
+
+---
+
+## API Quick Reference
+
+All endpoints are relative to your brand's base URL: `https://{your_brand_domain}/api/v1`
+
+| Method | Endpoint                  | Scope   | Purpose                                     |
+|--------|---------------------------|---------|---------------------------------------------|
+| POST   | `/payments`               | `write` | Create a new payment intent                 |
+| GET    | `/payments/{id}`          | `read`  | Retrieve payment details and current status |
+| GET    | `/transactions`           | `read`  | List all transactions with filters          |
+| GET    | `/transactions/{trx_id}`  | `read`  | Retrieve a single transaction by ID         |
+| POST   | `/payment-links`          | `write` | Create a reusable shareable payment link    |
+| POST   | `/refunds`                | `write` | Request a full or partial refund            |
+| GET    | `/refunds`                | `read`  | List refunds                                |
+| POST   | `/webhooks/tests`         | `write` | Fire a test `payment.completed` event       |
+| GET    | `/webhooks/deliveries`    | `read`  | View recent webhook delivery attempts       |
+| GET    | `/health`                 | None    | System health check (no auth required)      |
+
+<Info>
+The full interactive OpenAPI reference with request/response schemas, field validation rules, and a live API tester is available at [docs.ownpay.org](https://docs.ownpay.org).
+</Info>
+
+---
+
+## Common Troubleshooting
+
+**"Invalid API key" error**
+Verify the key hasn't been revoked in **Developer Hub → API Keys**. Regenerate and update your environment variables if needed.
+
+**Webhook not received**
+Confirm your endpoint is publicly reachable over HTTPS and that your server firewall allows inbound connections from your OwnPay instance's IP. Check **Developer Hub → Webhooks → Delivery Log** for error details.
+
+**Payment stuck in `pending`**
+Check that your OwnPay cron job is running: `php public/index.php cron`. The cron process advances payment states.
+
+**CORS errors on payment creation**
+Expected behavior — always call the OwnPay API from your backend, never directly from the browser.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="PHP SDK Guide" icon="php" href="/developer/integration/php">
+    Full reference for the PHP client: payment intents, payment links, transactions, and error handling.
+  </Card>
+  <Card title="Node.js SDK Guide" icon="node" href="/developer/integration/nodejs">
+    Full reference for the TypeScript/Node.js client with type definitions and Express examples.
+  </Card>
+  <Card title="Webhooks Deep Dive" icon="webhook" href="/developer/webhooks">
+    All event types, retry behavior, delivery logs, and idempotency best practices.
+  </Card>
+  <Card title="WooCommerce Plugin" icon="wordpress" href="/developer/integration/woocommerce">
+    Install and configure the OwnPay gateway plugin for WordPress WooCommerce stores.
+  </Card>
+</CardGroup>

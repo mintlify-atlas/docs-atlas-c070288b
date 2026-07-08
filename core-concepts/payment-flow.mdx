@@ -1,0 +1,203 @@
+---
+title: "Payment Flow and Lifecycle in OwnPay"
+sidebarTitle: "Payment Flow"
+description: "End-to-end payment lifecycle in OwnPay: from payment intent creation through gateway callback, double-entry ledger recording, and webhook dispatch."
+---
+
+Every payment processed by OwnPay follows a well-defined lifecycle — from the moment a payment intent is created through gateway authorization, transaction recording in the double-entry ledger, webhook dispatch to your application, and final customer redirect. Understanding this lifecycle is essential for building reliable integrations, handling failures gracefully, and auditing transaction records.
+
+## The End-to-End Payment Lifecycle
+
+<Steps>
+  <Step title="Payment Intent Created via POST /payments">
+    Your application (or OwnPay's admin panel) initiates a payment by creating a payment intent. Via the API:
+
+    ```http
+    POST https://{brand_domain}/api/v1/payments
+    Authorization: Bearer {secret_key}
+    Content-Type: application/json
+
+    {
+      "amount": 4999,
+      "currency": "USD",
+      "description": "Order #1042 — 1x Premium Plan",
+      "customer_email": "jane@example.com",
+      "callback_url": "https://yourapp.com/webhooks/ownpay",
+      "redirect_url": "https://yourapp.com/orders/1042/confirmation",
+      "metadata": {
+        "order_id": "1042"
+      }
+    }
+    ```
+
+    OwnPay responds with a `checkout_url` and a payment `id`:
+
+    ```json
+    {
+      "id": "pay_a1b2c3d4",
+      "status": "created",
+      "checkout_url": "https://{brand_domain}/checkout/pay_a1b2c3d4",
+      "amount": 4999,
+      "currency": "USD"
+    }
+    ```
+
+    The payment status is `created` at this point — no customer interaction has occurred yet.
+  </Step>
+
+  <Step title="Customer Redirected to Checkout URL">
+    Your application redirects (or links) the customer to the `checkout_url` returned in the previous step. The customer arrives at the OwnPay-hosted checkout page, which is branded according to the brand's logo, color, and domain configuration.
+
+    At this point the payment status advances to `pending`. The customer has not yet taken any action, but the checkout session is active.
+  </Step>
+
+  <Step title="Customer Selects a Gateway and Completes Payment">
+    The checkout page displays all gateways that the brand has configured and enabled. The customer selects their preferred payment method (e.g. Stripe card, PayPal, bKash) and submits their payment details.
+
+    Once the customer submits, the payment status advances to `processing`. OwnPay transmits the payment details to the selected gateway and waits for the authorization response.
+
+    <Note>
+      Customers never submit payment credentials directly to your application server. The checkout is hosted entirely by OwnPay, and card data is submitted directly to the payment processor via the gateway's secure endpoint. Your server never sees raw card numbers.
+    </Note>
+  </Step>
+
+  <Step title="Gateway Callback Received">
+    After the gateway completes its authorization attempt, it sends a callback (webhook) back to OwnPay with the result. OwnPay verifies the callback signature, validates the response against the original payment intent, and resolves the payment to either `completed` or `failed`.
+
+    For manual gateways (such as the SMS-based mobile money gateway), this step involves OwnPay parsing an incoming SMS alert from the paired Android device and matching it against the pending payment amount.
+  </Step>
+
+  <Step title="Transaction Recorded in the Double-Entry Ledger">
+    Upon receiving a successful gateway callback, OwnPay records the transaction using double-entry bookkeeping. Each payment generates at minimum two ledger entries:
+
+    - A **debit** entry against the customer's receivable account
+    - A **credit** entry against the brand's settlement account
+
+    Fees, refunds, and chargebacks each produce their own corresponding ledger entries. This structure guarantees that the ledger always balances and that every financial event is fully auditable.
+  </Step>
+
+  <Step title="Webhook Dispatched to callback_url">
+    If a `callback_url` was provided in the original payment intent (or if a global brand webhook is configured), OwnPay dispatches an HTTP POST to that URL with a signed event payload.
+
+    Example `payment.completed` webhook payload:
+
+    ```json
+    {
+      "type": "payment.completed",
+      "id": "evt_z9y8x7w6",
+      "created_at": "2024-06-15T14:22:31Z",
+      "data": {
+        "id": "pay_a1b2c3d4",
+        "amount": 4999,
+        "currency": "USD",
+        "status": "completed",
+        "customer_email": "jane@example.com",
+        "gateway": "stripe",
+        "gateway_transaction_id": "ch_3NkL4v2eZvKYlo2C1abc",
+        "brand_id": "brand_xyz",
+        "metadata": {
+          "order_id": "1042"
+        },
+        "paid_at": "2024-06-15T14:22:29Z"
+      }
+    }
+    ```
+
+    The webhook is signed with HMAC-SHA256 in the `X-OwnPay-Signature` header. Your application must verify this signature before processing the event. See [Webhooks and Events](/core-concepts/webhooks-events) for the full signature verification guide.
+  </Step>
+
+  <Step title="Customer Redirected to redirect_url">
+    After payment resolution, OwnPay redirects the customer to the `redirect_url` specified in the original payment intent. Query parameters are appended indicating the outcome:
+
+    ```
+    https://yourapp.com/orders/1042/confirmation?payment_id=pay_a1b2c3d4&status=completed
+    ```
+
+    Your application should verify the payment status via a server-side API call — do not rely solely on the redirect query parameters for confirming payment, as they could be tampered with in transit.
+
+    ```http
+    GET https://{brand_domain}/api/v1/payments/pay_a1b2c3d4
+    Authorization: Bearer {secret_key}
+    ```
+  </Step>
+</Steps>
+
+## Payment Statuses
+
+A payment transitions through the following statuses during its lifecycle. Not every payment visits every status — a payment that is declined moves from `processing` directly to `failed` without touching `completed`.
+
+| Status | Description |
+|--------|-------------|
+| `created` | Payment intent created; awaiting customer interaction at the checkout URL |
+| `pending` | Customer has opened the checkout page; no payment attempt made yet |
+| `processing` | Customer has submitted payment details; awaiting gateway authorization response |
+| `completed` | Gateway confirmed payment; funds authorized; transaction recorded in ledger |
+| `failed` | Gateway declined payment; no funds captured; customer may retry |
+| `cancelled` | Payment was explicitly cancelled before completion (by admin or expiry) |
+
+<Info>
+  A sixth status, `refunded`, is applied after a completed payment is reversed. Refunds are initiated from the admin panel or via the API and produce their own ledger entries. Disputed payments (chargebacks) are tracked separately with a `disputed` flag.
+</Info>
+
+## Payment Creation Methods
+
+Payments can be initiated through three distinct paths, all of which follow the same underlying lifecycle:
+
+<Tabs>
+  <Tab title="API Integration">
+    Your server-side application creates the payment intent via `POST /payments` and redirects the customer to the returned `checkout_url`. This is the primary integration method for e-commerce platforms, SaaS products, and custom applications.
+
+    Your application receives the payment result asynchronously via webhook and can also poll `GET /payments/{id}` directly.
+  </Tab>
+  <Tab title="Payment Links">
+    An admin creates a payment link from the **Payments → Payment Links** panel. OwnPay generates a shareable URL that can be sent to a customer by email, SMS, or any other channel. No coding required — suitable for invoicing and ad-hoc payment collection.
+  </Tab>
+  <Tab title="Hosted Checkout Redirect">
+    For applications that prefer not to handle the checkout UI at all, redirect users to the brand's checkout domain with the necessary parameters. OwnPay renders the full checkout experience and redirects back when done.
+  </Tab>
+</Tabs>
+
+## Error Handling and Retries
+
+When a gateway declines a payment, OwnPay records the failure with the gateway's error code and presents a message to the customer on the checkout page. The payment is marked `failed` and a `payment.failed` webhook is dispatched.
+
+| Common Failure Reason | What to Communicate to Customers |
+|-----------------------|----------------------------------|
+| Insufficient funds | Ask the customer to use a different card or payment method |
+| Invalid card details | Ask them to re-enter card number, expiry, or CVV |
+| Fraud detection trigger | Suggest contacting their bank or using an alternative method |
+| Gateway temporarily unavailable | Let them know to try again in a few minutes |
+| Payment expired | The checkout session timed out — they must restart from a new payment link |
+
+Customers can retry a failed payment by returning to the checkout URL while the payment is still in `pending` or `failed` state and the session has not expired.
+
+## Checking Payment Status via API
+
+At any point after creation, you can query the current status of a payment:
+
+```http
+GET https://{brand_domain}/api/v1/payments/{payment_id}
+Authorization: Bearer {secret_key}
+```
+
+Response:
+
+```json
+{
+  "id": "pay_a1b2c3d4",
+  "amount": 4999,
+  "currency": "USD",
+  "status": "completed",
+  "customer_email": "jane@example.com",
+  "gateway": "stripe",
+  "gateway_transaction_id": "ch_3NkL4v2eZvKYlo2C1abc",
+  "paid_at": "2024-06-15T14:22:29Z",
+  "metadata": {
+    "order_id": "1042"
+  }
+}
+```
+
+<Tip>
+  Always confirm payment status via a server-side API call before fulfilling an order. The `redirect_url` query parameters are for user experience — server-side verification is the authoritative source of truth.
+</Tip>

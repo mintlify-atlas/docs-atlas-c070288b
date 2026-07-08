@@ -1,0 +1,118 @@
+---
+title: "Creating and Managing Brands in OwnPay"
+sidebarTitle: "Brands"
+description: "Create isolated white-label merchant storefronts, configure custom domains, assign gateways and staff, and manage brand-level checkout settings."
+---
+
+In OwnPay, a **brand** is a fully isolated merchant storefront that operates under its own domain, visual identity, currency, and staff access controls. The primary administrator can run multiple brands from a single OwnPay installation — each brand has its own checkout URL, logo, colour palette, and gateway assignments, completely shielding the underlying OwnPay platform from customers. This architecture is ideal for agencies, holding companies, or any operator managing payments for more than one business entity.
+
+## Navigating to Brands
+
+Log in to the OwnPay admin dashboard as the super-administrator. Under the **PEOPLE** section in the left sidebar, click **Brands**. The brand list table opens showing all storefronts registered on the server.
+
+## Brand List View
+
+The brands table gives a consolidated overview of every configured storefront:
+
+| Column | Description |
+|---|---|
+| **ID** | Unique database identifier (`merchant_id`) used internally and in API requests. |
+| **Business** | The public-facing trade name of the brand. |
+| **Domain** | The verified custom domain mapped to this storefront (e.g. `pay.mybusiness.com`). |
+| **Currency** | Default base ledger and checkout currency (e.g. `BDT`, `USD`). |
+| **Status** | `Active` (online), `Suspended` (checkout blocked), or `Pending` (not yet live). |
+| **Created** | Date the brand was first registered. |
+| **Actions** | **Edit** opens the full brand configuration form. |
+
+## Creating a New Brand
+
+<Steps>
+  <Step title="Click + Add Brand">
+    On the Brands page, click the **+ Add Brand** button in the header to open the brand creation wizard.
+  </Step>
+  <Step title="Enter business information">
+    Fill in the **Business Name** (e.g. `Alpha Store`), **Contact Email**, **Phone**, and select the correct **Timezone** for your brand's operating region. Set **Status** to `Active` unless you want the brand to go live later.
+  </Step>
+  <Step title="Set the default currency">
+    In the **Default Currency** field, enter the ISO 4217 currency code for this brand's base denomination (e.g. `USD`). This currency will be used for all transactions, invoices, and reports under this brand.
+  </Step>
+  <Step title="Configure the custom domain">
+    In the **Custom Domain** field, enter only the hostname without any protocol prefix — for example `pay.alphastore.com`, not `https://pay.alphastore.com`. Then, in your DNS provider, create a CNAME record pointing this domain to your OwnPay server's IP address.
+  </Step>
+  <Step title="Upload logo and favicon">
+    Upload a **Brand Logo** (recommended: 200×60 px PNG) and **Brand Favicon** (recommended: 32×32 px ICO or PNG). These assets are displayed on every checkout page for this brand.
+  </Step>
+  <Step title="Choose brand colours">
+    Set the **Primary Theme Color** (used for buttons and primary accents, default `#0d9488`) and the **Accent Theme Color** (used for hover states, default `#0f766e`) to match the brand's visual identity.
+  </Step>
+  <Step title="Add support contact and optional customisations">
+    Enter the **Support Contact Email** — customer queries from the checkout page will route here. Optionally add **Custom CSS Overrides** or **Custom JavaScript** to align the checkout with your main website's design.
+  </Step>
+  <Step title="Save the brand">
+    Click **Create** to save the brand. It will appear immediately in the brands list and its checkout URL will be active at the configured custom domain.
+  </Step>
+</Steps>
+
+## Brand Settings Reference
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| **Business Name** | Yes | — | Public-facing store name shown on checkout and receipts. |
+| **Contact Email** | No | — | General business contact address. |
+| **Phone** | No | — | General contact phone number. |
+| **Status** | Yes | Active | `Active` allows checkout; `Suspended` blocks all new payments. |
+| **Timezone** | Yes | Asia/Dhaka | Used for report date offsets and scheduled tasks. |
+| **Default Currency** | Yes | BDT | ISO 4217 code for the brand's base transaction currency. |
+| **Custom Domain** | No | — | Hostname only (e.g. `pay.example.com`), no `http://` or `https://`. |
+| **Brand Logo** | No | — | Checkout logo. Recommended 200×60 px PNG. |
+| **Brand Favicon** | No | — | Browser tab icon. Recommended 32×32 px ICO or PNG. |
+| **Primary Theme Color** | No | `#0d9488` | Main button and accent colour. |
+| **Accent Theme Color** | No | `#0f766e` | Button hover and secondary accent colour. |
+| **Support Contact Email** | No | — | Shown to customers needing help during checkout. |
+| **Custom CSS Overrides** | No | — | Stylesheet rules injected into the brand's checkout page. |
+| **Custom JavaScript** | No | — | Script injected into the brand's checkout page. |
+
+## White-Label Settings
+
+OwnPay's white-label system completely replaces the platform branding with your own on every customer-facing page. When a request arrives at the configured custom domain, the `DomainMiddleware` captures the HTTP host header, matches it to a brand record, and loads that brand's visual context — logo, colours, custom CSS, and footer text — while simultaneously blocking access to `/admin` routes from that domain.
+
+<Tip>
+  Use **Custom CSS Overrides** to match your checkout page to your main website. Even small changes — matching the font family or button border radius — significantly improve customer trust and reduce checkout abandonment.
+</Tip>
+
+## Assigning Gateways to a Brand
+
+Each brand activates only the payment gateways relevant to it. To assign gateways:
+
+1. Open the brand's **Edit** form.
+2. Navigate to the **Gateways** section within the brand settings.
+3. Toggle on each gateway this brand should offer at checkout.
+4. Click **Save**. Only enabled gateways will appear on this brand's checkout pages.
+
+<Note>
+  A gateway must be globally configured and set to **Active** on the Payment Gateways page before it can be assigned to any brand. Gateways in **Test Mode** will show an amber indicator in the brand's gateway list.
+</Note>
+
+## Assigning Staff to a Brand
+
+Staff members must be explicitly scoped to the brands they manage. A staff account that is not assigned to a brand cannot access or process payments for that brand.
+
+To assign a staff member:
+
+1. Navigate to **People → Staff** and open the staff member's **Edit** form.
+2. In the **Brand Access** section, check the brands this staff member should manage.
+3. Click **Save**. The staff member's sidebar and dashboard will now reflect only the brands they are authorised for.
+
+<Warning>
+  If a staff member attempts to access a brand they are not assigned to, the system's role access controls will block the request. Always verify brand assignment when onboarding new team members or when a staff member reports being unable to see transactions for a specific storefront.
+</Warning>
+
+## Brand Public Checkout URL
+
+Once a custom domain is configured and DNS is propagated, the brand's public checkout URL takes the form:
+
+```
+https://pay.yourbrand.com/checkout/{token}
+```
+
+Payment links and invoice URLs generated under this brand will automatically use the custom domain. If no custom domain is configured, the checkout falls back to the OwnPay server's default domain with the brand's `merchant_id` in the path.

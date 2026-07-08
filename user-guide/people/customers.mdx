@@ -1,0 +1,108 @@
+---
+title: "Managing Customer Profiles and Transaction History"
+sidebarTitle: "Customers"
+description: "Browse, create, and manage customer profiles with encrypted PII, view lifetime transaction history, and understand auto-registration from checkout flows."
+---
+
+The Customers section of OwnPay is a centralised directory of every client who has interacted with your brand — whether they paid through a checkout link, settled an invoice, or were manually registered by your team. Each customer profile stores contact information, a full transaction history, and a lifetime spending total, giving administrators a complete picture of customer value at a glance. All personally identifiable information (PII) is encrypted at rest, and access to full customer records is gated by role permissions.
+
+## Navigating to Customers
+
+In the OwnPay admin dashboard, expand the **PEOPLE** section in the left sidebar and click **Customers**. The customer list view opens, scoped to your currently active brand.
+
+## Customer List View
+
+The list view presents all registered customers for the active brand in a searchable, paginated table:
+
+- **KPI Card** — Displays the total customer count for the brand at the top of the page.
+- **Search Toolbar** — Search across customers by name, email address, or phone number.
+- **Customers Table** — Each row shows the customer's Name and internal ID, masked Email, masked Phone, transaction volume count, Total Spent (in the brand's base currency), and registration date.
+- **Actions** — **View** opens the full customer profile with unmasked PII and transaction history. **Delete** permanently removes the profile.
+
+<Note>
+  Customer PII — name, email, and phone number — is stored using **AES-256-GCM encryption** in the database. The list view intentionally masks these fields (e.g. `jo**@exam**.com`) to prevent casual exposure. Full contact details are only revealed on the individual customer profile page, which requires the `manage_customers` or `view_customers` permission to access.
+</Note>
+
+## Viewing a Customer Profile
+
+Click **View** next to any customer in the list to open their full profile. The profile page displays:
+
+- **Contact details** — unmasked name, email, and phone number.
+- **Lifetime metrics** — total number of transactions and aggregate amount spent.
+- **Transaction history** — a paginated table listing every payment, invoice, and checkout linked to this customer, including date, gateway used, amount, currency, and final status.
+
+This view is the fastest way to investigate a customer's payment behaviour, look up a specific transaction reference, or verify whether an invoice was settled.
+
+## Creating a Customer Manually
+
+<Steps>
+  <Step title="Click Add Customer">
+    On the Customers page, click the **Add Customer** button in the top-right corner to open the creation form.
+  </Step>
+  <Step title="Enter the customer's full name">
+    Type the client's full name in the **Name** field (e.g. `Jane Smith`). This is the name that appears on invoices and receipts sent to the customer.
+  </Step>
+  <Step title="Enter the email address">
+    Type a valid email in the **Email** field (e.g. `jane@example.com`). This address receives payment notifications, invoice links, and receipt emails.
+  </Step>
+  <Step title="Enter a phone number (optional)">
+    Add a contact number in international format in the **Phone** field (e.g. `+8801700000000`). This field is optional but recommended for mobile wallet gateways.
+  </Step>
+  <Step title="Save the profile">
+    Click **Add Customer**. The new profile is saved to the database under your active brand's `merchant_id` and the customer appears immediately in the list.
+  </Step>
+</Steps>
+
+<Tip>
+  Before manually creating a new customer, use the search bar to check whether a profile already exists for that email address. Duplicate customer records fragment transaction history and inflate the customer count metric shown in reports.
+</Tip>
+
+## Customer Fields Reference
+
+| Field | Required | Placeholder | Description |
+|---|---|---|---|
+| **Name** | Yes | Full name | Customer's full name, shown on invoices and receipts. |
+| **Email** | Yes | email@example.com | Billing and notification email address. Stored encrypted. |
+| **Phone** | No | +880XXXXXXXXXX | Contact phone number. Stored encrypted. Optional. |
+
+## Auto-Registration from Payment Flows
+
+Customers do not need to be manually created for every payment. OwnPay automatically registers a new customer profile when:
+
+- A customer completes a **checkout link** (`/checkout/{token}`) for the first time.
+- A customer pays through a **payment link** (`/pay/{slug}`).
+- An **invoice** is sent to a new email address and the customer pays it.
+
+In all these cases, the system creates a record in the `op_customers` table, scoped to the brand's `merchant_id`. If the same email pays again, the existing profile is updated rather than duplicated.
+
+<Note>
+  Auto-registered customers have their details collected during the checkout flow itself. You do not need to pre-create customer profiles unless you are planning to issue invoices proactively before any payment has occurred.
+</Note>
+
+## Viewing Transaction History Per Customer
+
+Transaction history is available directly on the customer profile page. To access it:
+
+1. From the **Customers** list, click **View** next to the target customer.
+2. Scroll to the **Transaction History** section on the profile page.
+3. The table lists each transaction with its date, gateway, currency, amount, and status (`completed`, `pending`, `failed`, `refunded`).
+4. Click any transaction row to open the full transaction detail page.
+
+This gives you a complete audit trail for any customer dispute or support inquiry — from the first payment ever made to the most recent one.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Avoid duplicate profiles" icon="user-check" href="/user-guide/people/customers#creating-a-customer-manually">
+    Always search by email before creating a customer manually. Duplicates split transaction history and produce inaccurate spending totals.
+  </Card>
+  <Card title="Do not delete active customers" icon="triangle-exclamation" href="/user-guide/people/customers#customer-list-view">
+    Deleting a customer profile that has associated transactions orphans those transaction records. Only delete profiles with no payment history.
+  </Card>
+  <Card title="Verify email format on creation" icon="envelope-circle-check" href="/user-guide/people/customers#creating-a-customer-manually">
+    Malformed emails will cause invoice and receipt delivery failures. OwnPay validates the format on save but cannot verify deliverability.
+  </Card>
+  <Card title="Use role permissions to protect PII" icon="lock" href="/user-guide/people/roles">
+    Restrict the `manage_customers` permission to staff who genuinely need full contact details. Support staff who only handle payment queries should receive `view_customers` with masked PII.
+  </Card>
+</CardGroup>

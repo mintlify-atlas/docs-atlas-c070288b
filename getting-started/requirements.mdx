@@ -1,0 +1,161 @@
+---
+title: "OwnPay Server and Hosting Requirements"
+sidebarTitle: "Requirements"
+description: "Minimum and recommended server specs, required PHP extensions, hosting compatibility, cron job syntax, and optional performance enhancements for OwnPay."
+---
+
+Before downloading or installing OwnPay, confirm that your hosting environment satisfies all of the requirements listed on this page. An environment that is missing a PHP extension or running an unsupported PHP version will fail at the web installer's requirements check — reviewing this page first saves time and avoids a broken install.
+
+## Server Requirements
+
+The table below lists the minimum configuration required for OwnPay to run and the recommended configuration for a production payment gateway handling real traffic.
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| **PHP** | 8.3 | 8.3 (latest patch) |
+| **MySQL** | 5.7 | 8.0+ |
+| **RAM** | 512 MB | 2 GB+ |
+| **Disk Space** | 1 GB | 5 GB+ |
+
+<Warning>
+  PHP 8.3 is a hard requirement. OwnPay will not start on PHP 8.2 or earlier. If your hosting panel shows an older default PHP version, switch it to 8.3 before running the installer.
+</Warning>
+
+## Required PHP Extensions
+
+All of the extensions listed below must be enabled on your server. Most modern shared hosting plans include them by default. On a VPS, install them manually alongside PHP 8.3.
+
+| Extension | Purpose |
+|-----------|---------|
+| `php-mysql` | MySQL database connectivity |
+| `php-curl` | Outbound HTTP requests to payment gateways |
+| `php-xml` | XML processing for gateway responses |
+| `php-zip` | ZIP archive support for plugin installation |
+| `php-gd` | Image manipulation for logos and receipts |
+| `php-bcmath` | Arbitrary-precision arithmetic for financial calculations |
+| `php-intl` | Internationalization and locale formatting |
+| `php-mbstring` | Multi-byte string handling for international character sets |
+
+<Tip>
+  The OwnPay web installer runs an automated requirements check on its first screen and flags any missing extensions with a red indicator. You will not be able to proceed past that screen until all extensions are green.
+</Tip>
+
+## Hosting Compatibility
+
+<Tabs>
+  <Tab title="Shared Hosting">
+    Shared hosting is supported and works well for low-to-medium traffic deployments. Popular providers that are compatible with OwnPay include Hostinger, Namecheap, SiteGround, and Bluehost.
+
+    **Requirements for shared hosting:**
+    - PHP 8.3 selectable per domain (via cPanel MultiPHP, DirectAdmin PHP Selector, or Plesk PHP Settings)
+    - MySQL database creation access
+    - File Manager or FTP access to upload and extract files
+    - Cron job configuration panel (cPanel Advanced → Cron Jobs, DirectAdmin Cron Jobs, or Plesk Scheduled Tasks)
+
+    <Note>
+      On shared hosting, the document root for your domain must be pointed to the `public/` subdirectory inside the OwnPay installation, not the root folder. Most shared hosts let you configure this in the domain settings panel.
+    </Note>
+  </Tab>
+  <Tab title="VPS / Cloud">
+    A Linux VPS is the recommended environment for any production payment gateway deployment. It provides full control, better performance, and the ability to run Redis for caching and queue processing.
+
+    **Tested and supported distributions:**
+    - Ubuntu 22.04 LTS
+    - Ubuntu 24.04 LTS
+    - Debian 12
+
+    **Recommended stack:**
+    - Nginx as the web server (Apache also works)
+    - PHP 8.3-FPM
+    - MySQL 8.0
+    - Redis (optional but recommended)
+    - Let's Encrypt for SSL (free and auto-renewing)
+
+    On a VPS, configure Nginx to point the document root to the `public/` directory inside your OwnPay installation. See the [Installation Guide](/getting-started/installation) for a complete Nginx server block example.
+  </Tab>
+  <Tab title="Docker">
+    OwnPay includes full Docker support for containerized deployments. Docker is well-suited for development environments, CI pipelines, and production deployments where infrastructure is managed as code.
+
+    The OwnPay Docker image bundles PHP 8.3-FPM with all required extensions. You supply a MySQL container and optionally a Redis container via `docker-compose`.
+
+    Refer to the `docker-compose.yml` in the [OwnPay GitHub repository](https://github.com/own-pay/OwnPay) for a complete example configuration.
+  </Tab>
+</Tabs>
+
+## Domain and SSL Requirements
+
+OwnPay requires a proper domain and HTTPS in production. These are not optional for a payment gateway.
+
+- **Custom domain** — A registered domain name pointed at your server via DNS A record
+- **SSL certificate** — HTTPS is required; use Let's Encrypt (free) or any valid certificate authority
+- **DNS access** — Required to configure per-brand custom domains and brand-level checkout domains
+
+<Warning>
+  Running OwnPay over plain HTTP (`http://`) in a production environment is insecure and will cause modern browsers to block payment form submissions. Always use HTTPS.
+</Warning>
+
+## Cron Job Requirement
+
+OwnPay depends on a background scheduler to process payment queues, check gateway callbacks, send notifications, and handle retries. You must configure a cron job that runs once per minute.
+
+```bash
+* * * * * php /path/to/ownpay/public/index.php cron
+```
+
+Replace `/path/to/ownpay/public/index.php` with the actual absolute path on your server. On shared hosting, this is typically something like `/home/YOUR_USERNAME/public_html/public/index.php`. On a VPS, it is usually `/var/www/ownpay/public/index.php`.
+
+<Warning>
+  If the cron job is not configured, payment status checks, webhook retries, and notification emails will not work. The system will appear functional but many features will silently fail.
+</Warning>
+
+## Optional Enhancements
+
+These components are not required to run OwnPay but are strongly recommended for production deployments with meaningful traffic.
+
+<AccordionGroup>
+  <Accordion title="Redis — Caching and Queue Processing" icon="bolt">
+    Redis is the recommended driver for both the cache layer and the background job queue. Without Redis, OwnPay falls back to file-based caching and synchronous queue processing, which is slower and less reliable under load.
+
+    Install Redis on Ubuntu/Debian:
+    ```bash
+    sudo apt install -y redis-server php8.3-redis
+    sudo systemctl enable redis-server
+    ```
+
+    After installation, switch the cache and queue drivers to `redis` in **Settings → System** inside the OwnPay admin panel.
+  </Accordion>
+  <Accordion title="Nginx — Web Server Performance" icon="server">
+    Both Nginx and Apache are supported, but Nginx is recommended for VPS deployments. Nginx handles static asset serving more efficiently and its configuration for OwnPay is simpler and more explicit. See the [Installation Guide](/getting-started/installation) for the complete recommended Nginx server block.
+  </Accordion>
+  <Accordion title="CDN — Static Asset Delivery" icon="globe">
+    For installations serving customers across multiple geographic regions, placing a CDN in front of OwnPay's static assets (JavaScript, CSS, images) reduces checkout page load times. Any standard CDN (Cloudflare, BunnyCDN, AWS CloudFront) can be used with OwnPay.
+  </Accordion>
+</AccordionGroup>
+
+## Mobile SMS Gateway Requirements
+
+The optional mobile SMS gateway feature — which automatically parses mobile-banking SMS alerts from providers like bKash and Nagad — requires an Android device to be paired with OwnPay.
+
+| Requirement | Specification |
+|-------------|--------------|
+| **Android version** | 8.0 (Oreo) or higher |
+| **SIM card** | Active mobile money account (bKash, Nagad, or compatible) |
+| **Network** | Persistent internet connection for the paired device |
+| **OwnPay companion app** | Required on the Android device |
+
+<Info>
+  The Android SMS gateway is an optional feature and is not needed for standard payment processing via Stripe, PayPal, or other plugin-based gateways. It is specifically for operators who need to automate local mobile-money payment verification.
+</Info>
+
+## Browser Requirements for the Admin Panel
+
+The OwnPay admin panel is a web application and works in all modern browsers.
+
+- Chrome / Chromium 90+
+- Firefox 88+
+- Safari 14+
+- Edge 90+
+
+---
+
+Once your environment meets these requirements, proceed to the [Installation Guide](/getting-started/installation).

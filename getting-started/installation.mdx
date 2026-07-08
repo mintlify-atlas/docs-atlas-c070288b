@@ -1,0 +1,354 @@
+---
+title: "Install OwnPay on Your Server"
+sidebarTitle: "Installation"
+description: "Complete step-by-step guide to installing OwnPay on shared hosting or a Linux VPS, including Nginx configuration, environment setup, and cron job."
+---
+
+OwnPay ships with a built-in web installer. Once you upload the application files, create a database, and configure your web server's document root, the installer wizard handles the rest — including writing your configuration, running database migrations, and creating your master administrator account. No command-line PHP knowledge is required for the core setup.
+
+<Warning>
+  OwnPay's document root must be pointed at the `public/` subdirectory, **not** the root of the installation folder. Setting the document root to the root folder exposes application source files and configuration to the public internet. This is a critical security requirement.
+</Warning>
+
+## Step-by-Step Installation
+
+<Steps>
+  <Step title="Download OwnPay from GitHub Releases">
+    Go to the [OwnPay GitHub Releases page](https://github.com/own-pay/OwnPay/releases/) and download the latest stable release.
+
+    1. Find the most recent release at the top of the list
+    2. Under **Assets**, click the `.zip` file (e.g. `ownpay-v1.x.x.zip`) to download it
+    3. Save the file locally — you will upload it to your server in the next step
+
+    <Tip>
+      Always use the latest stable release for a production install. Pre-release and beta builds are marked clearly on the releases page.
+    </Tip>
+  </Step>
+
+  <Step title="Upload to Your Web Server and Set Document Root">
+    Upload the downloaded ZIP to your server and extract it, then configure your web server to serve from the `public/` directory.
+
+    <Tabs>
+      <Tab title="Shared Hosting (cPanel)">
+        1. Log in to cPanel and open **File Manager**
+        2. Navigate to your website root folder (usually `public_html/`)
+        3. Click **Upload**, select the OwnPay `.zip` file, and wait for the upload to complete
+        4. Click the uploaded file, then click **Extract** in the toolbar
+        5. Confirm there is no double-nested folder — the `public/` directory should sit directly inside `public_html/`
+        6. In your domain settings, set the document root to the `public/` subfolder
+      </Tab>
+      <Tab title="VPS / Cloud (Nginx)">
+        On the server via SSH, download and extract OwnPay directly:
+
+        ```bash
+        cd /var/www
+        sudo wget https://github.com/own-pay/OwnPay/releases/download/vX.X.X/ownpay-vX.X.X.zip
+        sudo unzip ownpay-vX.X.X.zip -d ownpay
+        sudo rm ownpay-vX.X.X.zip
+        ```
+
+        Then set correct ownership so the web server process can write to storage:
+
+        ```bash
+        sudo chown -R www-data:www-data /var/www/ownpay
+        sudo chmod -R 755 /var/www/ownpay
+        sudo chmod -R 775 /var/www/ownpay/storage
+        ```
+
+        The Nginx configuration in Step 5 below sets the document root to `/var/www/ownpay/public`.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Create a MySQL Database and User">
+    OwnPay requires a dedicated MySQL database. Create the database and a user with full privileges on it.
+
+    <Tabs>
+      <Tab title="cPanel MySQL Databases">
+        1. In cPanel, open **MySQL Databases**
+        2. Create a new database (e.g. `ownpay_db`)
+        3. Scroll to **MySQL Users → Add New User**, create a user (e.g. `ownpay_user`) with a strong password
+        4. Under **Add User To Database**, select both, then grant **ALL PRIVILEGES**
+      </Tab>
+      <Tab title="MySQL CLI (VPS)">
+        Log in to MySQL and run the following commands. Replace `STRONG_PASSWORD_HERE` with a real password:
+
+        ```sql
+        CREATE DATABASE ownpay CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+        CREATE USER 'ownpay'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD_HERE';
+        GRANT ALL PRIVILEGES ON ownpay.* TO 'ownpay'@'localhost';
+        FLUSH PRIVILEGES;
+        EXIT;
+        ```
+      </Tab>
+    </Tabs>
+
+    <Note>
+      Write down the database name, username, password, and host (`localhost` on most setups). You will enter these values during the web installer and optionally into the `.env` file.
+    </Note>
+  </Step>
+
+  <Step title="Configure the .env File">
+    OwnPay reads its core configuration from a `.env` file in the installation root. The web installer writes this file for you, but on a VPS you may prefer to configure it manually before running the installer.
+
+    Copy the example environment file and edit it:
+
+    ```bash
+    cp .env.example .env
+    nano .env
+    ```
+
+    Set the following values at minimum:
+
+    ```bash
+    APP_URL=https://yourdomain.com
+    APP_KEY=                        # Leave blank — installer generates this automatically
+
+    DB_HOST=127.0.0.1
+    DB_DATABASE=ownpay
+    DB_USERNAME=ownpay
+    DB_PASSWORD=STRONG_PASSWORD_HERE
+    ```
+
+    A full example with optional Redis configuration:
+
+    ```bash
+    APP_NAME="My Payment Gateway"
+    APP_URL=https://yourdomain.com
+    APP_KEY=
+    APP_ENV=production
+    APP_DEBUG=false
+
+    DB_HOST=127.0.0.1
+    DB_PORT=3306
+    DB_DATABASE=ownpay
+    DB_USERNAME=ownpay
+    DB_PASSWORD=STRONG_PASSWORD_HERE
+
+    CACHE_DRIVER=file
+    QUEUE_DRIVER=sync
+    SESSION_DRIVER=file
+
+    # Optional Redis configuration (see Step 7)
+    # CACHE_DRIVER=redis
+    # QUEUE_DRIVER=redis
+    # REDIS_HOST=127.0.0.1
+    # REDIS_PORT=6379
+    ```
+
+    <Warning>
+      Never commit your `.env` file to version control. It contains database credentials and, after installation, a generated `APP_KEY` that is used for encryption.
+    </Warning>
+  </Step>
+
+  <Step title="Configure Nginx (VPS Only)">
+    On a Linux VPS, create an Nginx server block for OwnPay. This configuration sets the document root to `public/` and routes all requests through the front controller.
+
+    ```bash
+    sudo nano /etc/nginx/sites-available/ownpay
+    ```
+
+    Paste the following, replacing `yourdomain.com` with your actual domain:
+
+    ```nginx
+    server {
+        listen 80;
+        server_name yourdomain.com www.yourdomain.com;
+        root /var/www/ownpay/public;
+        index index.php;
+
+        # Route all requests through the front controller
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
+        # Block access to sensitive files
+        location ~ \.(env|git|md|json|lock|installed)$ {
+            deny all;
+        }
+
+        # Block access to internal application directories
+        location ~ ^/(src|config|database|modules|tests|vendor)/ {
+            deny all;
+        }
+
+        # Allow public media files in storage
+        location ~ ^/storage/(gateways|uploads)/ {
+            allow all;
+        }
+
+        # Block all other storage access
+        location ~ ^/storage/ {
+            deny all;
+        }
+
+        # PHP processing via PHP-FPM
+        location ~ \.php$ {
+            include snippets/fastcgi-php.conf;
+            fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            include fastcgi_params;
+        }
+
+        # Block hidden files like .htaccess
+        location ~ /\.ht {
+            deny all;
+        }
+
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2|webp)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+    ```
+
+    Enable the site, test the configuration, and reload Nginx:
+
+    ```bash
+    sudo ln -s /etc/nginx/sites-available/ownpay /etc/nginx/sites-enabled/
+    sudo nginx -t
+    sudo systemctl reload nginx
+    ```
+
+    Then install an SSL certificate with Certbot:
+
+    ```bash
+    sudo apt install -y certbot python3-certbot-nginx
+    sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+    ```
+  </Step>
+
+  <Step title="Run the Web Installer">
+    Open your browser and navigate to:
+
+    ```
+    https://yourdomain.com/install
+    ```
+
+    The installer is a four-step wizard:
+
+    | Step | What Happens |
+    |------|-------------|
+    | **Requirements Check** | The installer verifies PHP version, required extensions, and folder write permissions. All items must be green before you can continue. |
+    | **Database Configuration** | Enter your database host, port, name, username, and password. Click **Test Connection** to verify before proceeding. |
+    | **Admin Account** | Create the master administrator account — enter your name, email address, and a strong password. |
+    | **Application Settings** | Set the app name, confirm the app URL, and choose your timezone. Click **Install** to write the config and run migrations. |
+
+    On success, the installer displays a link to your login page at `https://yourdomain.com/login`.
+
+    <Warning>
+      After installation completes, enable **Two-Factor Authentication** on your master admin account immediately. Navigate to your profile settings to set it up. The installer lock file is written automatically — the `/install` route is disabled and cannot be re-run accidentally.
+    </Warning>
+  </Step>
+
+  <Step title="Configure the Cron Job">
+    The cron job is required. It runs background tasks including payment queue processing, gateway status checks, webhook retries, and notification emails. Without it, many features will silently fail.
+
+    <Tabs>
+      <Tab title="cPanel Cron Jobs">
+        1. Go to **Advanced → Cron Jobs** in cPanel
+        2. Set the frequency fields to `* * * * *` (every minute)
+        3. In the **Command** field, enter:
+
+        ```bash
+        php /home/YOUR_USERNAME/public_html/public/index.php cron
+        ```
+
+        Replace `YOUR_USERNAME` with your actual cPanel username. If OwnPay is installed in a subdirectory, adjust the path accordingly.
+      </Tab>
+      <Tab title="VPS (crontab)">
+        Add the cron job to the `www-data` user's crontab:
+
+        ```bash
+        sudo crontab -u www-data -e
+        ```
+
+        Add this line at the end of the file:
+
+        ```bash
+        * * * * * /usr/bin/php /var/www/ownpay/public/index.php cron >> /var/log/ownpay-cron.log 2>&1
+        ```
+
+        Confirm it was saved:
+
+        ```bash
+        sudo crontab -u www-data -l
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="(Optional) Set Up Redis">
+    Redis is not required but significantly improves performance for caching and background job processing. It is recommended for any production deployment expecting meaningful transaction volume.
+
+    On Ubuntu/Debian:
+
+    ```bash
+    sudo apt install -y redis-server php8.3-redis
+    sudo systemctl enable redis-server
+    sudo systemctl start redis-server
+    ```
+
+    Update your `.env` file to use Redis:
+
+    ```bash
+    CACHE_DRIVER=redis
+    QUEUE_DRIVER=redis
+    REDIS_HOST=127.0.0.1
+    REDIS_PORT=6379
+    ```
+
+    Alternatively, change these values in **Settings → System** inside the OwnPay admin panel.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="The installer won't open or shows a blank page" icon="circle-question">
+    - Confirm PHP 8.3 is active for your domain
+    - On shared hosting, verify `mod_rewrite` is enabled (contact your host if unsure)
+    - Confirm the `public/` directory is the document root, not the installation root
+    - Check that all OwnPay files extracted without a double-nested folder structure
+  </Accordion>
+  <Accordion title="Database connection failed in the installer" icon="database">
+    - Double-check the database name, username, and password — they must match exactly
+    - On shared hosting the host is almost always `localhost`; on VPS use `127.0.0.1`
+    - Confirm the database user has ALL PRIVILEGES on the target database
+  </Accordion>
+  <Accordion title="500 Internal Server Error" icon="triangle-exclamation">
+    On a VPS, check the Nginx and PHP-FPM error logs:
+
+    ```bash
+    sudo tail -50 /var/log/nginx/error.log
+    sudo journalctl -u php8.3-fpm --no-pager -n 50
+    ```
+
+    On shared hosting, look for **Error Logs** in your control panel under the domain or hosting section.
+  </Accordion>
+  <Accordion title="storage/ folder permission errors" icon="lock">
+    Set the storage directory to be writable by the web server:
+
+    ```bash
+    sudo chmod -R 775 /var/www/ownpay/storage
+    sudo chown -R www-data:www-data /var/www/ownpay/storage
+    ```
+
+    On shared hosting, use File Manager to right-click `storage/` and set permissions to `755` or `775`.
+  </Accordion>
+  <Accordion title="The /install page says 'Already Installed'" icon="circle-check">
+    OwnPay writes a lock file after a successful installation to prevent accidental reinstallation. If you see this message, OwnPay is already installed. Log in at `yourdomain.com/login` with your administrator credentials.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="First Steps After Installation" icon="flag" href="/getting-started/first-steps">
+    Create your first brand, configure a gateway, and generate your first API key or payment link.
+  </Card>
+  <Card title="Brands and Stores" icon="building-columns" href="/core-concepts/brands-and-stores">
+    Understand how the multi-brand architecture works before setting up your merchant entities.
+  </Card>
+</CardGroup>

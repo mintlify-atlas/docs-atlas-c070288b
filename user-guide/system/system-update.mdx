@@ -1,0 +1,186 @@
+---
+title: "System Update: Keep OwnPay Patched and Current"
+sidebarTitle: "System Update"
+description: "Check for available OwnPay releases, run core updates, monitor update history, and enable automatic nightly updates via the admin panel."
+---
+
+The System Update panel gives you full visibility and control over your OwnPay platform version. Keeping the platform updated ensures you have the latest security patches, gateway integration fixes, and new features as they are released. Updates are applied directly through the admin dashboard — no manual file transfers required — and the process includes automatic database migrations, signature verification, and a filesystem backup of the previous version before any files are overwritten.
+
+<Warning>
+  **Always back up your database before applying any update.** While OwnPay creates a filesystem backup of the previous codebase automatically, it does not snapshot your database. Run a full SQL dump (e.g. `mysqldump`) before triggering an update, especially before major version upgrades.
+</Warning>
+
+## Accessing System Update
+
+<Steps>
+  <Step title="Log in as Super-Administrator">
+    Sign in to the OwnPay admin dashboard with your super-administrator credentials.
+  </Step>
+  <Step title="Open System Update">
+    In the left sidebar under the **SYSTEM** section, click **System Update**.
+  </Step>
+</Steps>
+
+---
+
+## Dashboard Overview
+
+<CardGroup cols={2}>
+  <Card title="Current Version" icon="tag">
+    Displays the currently installed and active version of OwnPay (e.g. `v0.1.0`).
+  </Card>
+  <Card title="Latest Available" icon="arrow-up-to-line">
+    Shows the latest version on the update server. Displays a green **Up to date ✓** badge when current, or an **Update Available!** badge with an install button when a newer release is found.
+  </Card>
+  <Card title="Update History" icon="clock-rotate-left">
+    Logs all previous update executions: version migration path, date, status (`completed`, `failed`, `running`), and duration in seconds.
+  </Card>
+  <Card title="Auto-Update Settings" icon="rotate">
+    Toggle to allow the system to download and apply updates automatically during the low-traffic window between 2:00 AM and 5:00 AM.
+  </Card>
+</CardGroup>
+
+---
+
+## Checking for Updates
+
+<Steps>
+  <Step title="Open System Update">
+    Navigate to **SYSTEM → System Update** in the sidebar.
+  </Step>
+  <Step title="Check for Updates">
+    In the **Latest Available** card, click the **Check for Updates** button.
+  </Step>
+  <Step title="Review Results">
+    The platform queries the master update server and returns a flash message indicating whether a new version is available or the system is up to date.
+  </Step>
+</Steps>
+
+---
+
+## Installing a Core Update
+
+<Steps>
+  <Step title="Initiate the Update">
+    When a new version is available, click the green **Update to v{latest_version}** button in the **Latest Available** card.
+  </Step>
+  <Step title="Confirm the Dialog">
+    A confirmation dialog warns that the system will back up files, apply updates, and run database migrations. Click **OK** to proceed.
+  </Step>
+  <Step title="Update Execution">
+    The update process runs the following sequence automatically:
+    - Enters maintenance mode to block customer traffic
+    - Downloads the signed update package from the update server
+    - Verifies the package signature against `update_public_key.pem`
+    - Backs up the existing codebase to `storage/` cache
+    - Extracts and applies the new files
+    - Runs any included database migration scripts
+    - Clears application caches and reloads the platform
+  </Step>
+  <Step title="Completion">
+    Once finished, you are redirected to the admin dashboard with a success notification. The **Update History** table records the completed migration.
+  </Step>
+</Steps>
+
+<Note>
+  During the update, the `/admin/system-update` path remains accessible even while maintenance mode is active. This prevents you from being locked out if the update process is interrupted and you need to check status.
+</Note>
+
+---
+
+## What Happens During an Update
+
+<Accordion title="Signature verification">
+  All downloaded update packages are verified using asymmetric key cryptography. The system public key (`update_public_key.pem`) is stored in the root directory and validates the archive signature before a single file is extracted. If the signature check fails, the update is aborted immediately.
+</Accordion>
+
+<Accordion title="Database migrations">
+  Each update package includes SQL migration scripts that alter or extend the database schema. Migrations run sequentially after file extraction. If a migration fails, the update status is marked as `failed` in the history log and the system attempts to roll back.
+</Accordion>
+
+<Accordion title="Cache clearing">
+  After migrations complete, OwnPay clears all application caches, forcing fresh configuration and template compilations on the next request. This prevents stale cache values from conflicting with new code.
+</Accordion>
+
+<Accordion title="Filesystem backup and rollback">
+  Before overwriting any files, OwnPay stores a backup of the previous version's codebase in the `storage/` cache directory. If the update fails, the stored backup allows a clean rollback. Update history is tracked in the `op_update_history` table.
+</Accordion>
+
+---
+
+## Update History Reference
+
+The **Update History** table records each update run with the following columns:
+
+| Column | Description |
+|---|---|
+| **Version** | Migration path, e.g. `v0.1.0 → v0.1.1`. |
+| **Date** | Start timestamp of the update process. |
+| **Status** | `completed` (green), `failed` (red), or `running` (yellow). |
+| **Duration** | Time taken in seconds for the full update execution. |
+
+---
+
+## Enabling Auto-Update
+
+If you prefer hands-off maintenance, toggle **Enable Auto-Update** in the **Settings** card. When enabled, OwnPay automatically checks for, downloads, and applies core updates during the low-traffic window of **2:00 AM – 5:00 AM** server time.
+
+<Note>
+  Auto-update applies the same signature verification and migration steps as a manual update. The update history table records all auto-applied updates so you can review what changed.
+</Note>
+
+---
+
+## Pre-Update Checklist
+
+Before triggering a manual update, complete the following steps:
+
+<Steps>
+  <Step title="Back up the database">
+    Run a full SQL dump of all `op_` tables. Store the backup in a location outside the OwnPay directory.
+  </Step>
+  <Step title="Review release notes">
+    Read the changelog for the target version to understand UI changes, migration impacts, and any configuration actions required after the update.
+  </Step>
+  <Step title="Verify write permissions">
+    Ensure the web server process (`www-data` or the PHP-FPM user) has write access to the `storage/` directory and the root codebase directory. The update script cannot download or extract files without write access.
+  </Step>
+  <Step title="Schedule a maintenance window">
+    Inform your team and, if possible, schedule the update during a low-traffic period. The platform enters maintenance mode automatically during the update.
+  </Step>
+</Steps>
+
+---
+
+## Troubleshooting
+
+<Accordion title="Update fails with permission errors">
+  The web server process does not have write access to the root codebase directory. Adjust folder permissions to allow write operations for the web server user, or run the update manually via the CLI. Check `storage/logs/` for the specific error path.
+</Accordion>
+
+<Accordion title="System is stuck in maintenance mode after update">
+  The update process was interrupted or a post-update migration failed. Check `storage/logs/` for details. You can manually disable maintenance mode by removing the `storage/.maintenance` lock file, or by toggling the Maintenance Mode setting directly in the database `op_system_settings` table.
+</Accordion>
+
+<Accordion title="Do not modify core files directly">
+  Any changes made to files in `src/` or `public/` will be overwritten by the next update. Use the Plugin system to extend or customize OwnPay functionality so your customizations survive updates.
+</Accordion>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Plugins" icon="plug" href="/user-guide/system/plugins">
+    Install and activate modular gateway or addon extensions.
+  </Card>
+  <Card title="System Settings" icon="gear" href="/user-guide/system/settings">
+    Adjust global runtime settings and maintenance mode controls.
+  </Card>
+  <Card title="Changelog" icon="list" href="https://github.com/own-pay/OwnPay/releases">
+    Review all notable changes by version before applying updates.
+  </Card>
+  <Card title="Addons" icon="puzzle-piece" href="/user-guide/system/addons">
+    Manage mail, SMS, and Telegram utility addon plugins.
+  </Card>
+</CardGroup>

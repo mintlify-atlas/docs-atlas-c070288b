@@ -1,0 +1,91 @@
+---
+title: "OwnPay: Self-Hosted Payment Gateway Platform"
+sidebarTitle: "Introduction"
+description: "OwnPay is a self-hosted payment gateway you deploy on your own server — giving you sovereign control over transactions, brands, and customer data."
+---
+
+OwnPay is an open-source, enterprise-grade payment gateway orchestration platform that you install, run, and own entirely on your own infrastructure. Unlike SaaS payment products, no third party has access to your server, your database, or your transaction records. Every payment processed through OwnPay stays within the boundaries of your own deployment — giving operators, agencies, and fintech teams full sovereignty over their payment stack.
+
+## What Makes OwnPay Different
+
+OwnPay is built around a small set of architectural decisions that distinguish it from typical hosted payment platforms.
+
+<CardGroup cols={2}>
+  <Card title="Sovereign Single-Owner Model" icon="crown" href="/core-concepts/user-roles-permissions">
+    One master administrator controls the entire installation. There is no self-registration — all brands, staff members, and API keys are created by the administrator.
+  </Card>
+  <Card title="Multi-Brand Scoping" icon="building-columns" href="/core-concepts/brands-and-stores">
+    Run multiple fully isolated merchant stores (brands) under one installation. Each brand has its own customers, gateways, staff, and checkout domain.
+  </Card>
+  <Card title="White-Labeling" icon="paintbrush" href="/core-concepts/brands-and-stores">
+    Brands configure custom domains, logos, color schemes, and email templates — fully masking the master application domain from end customers.
+  </Card>
+  <Card title="Double-Entry Ledger" icon="book" href="/core-concepts/payment-flow">
+    Every payment, fee, and transfer is recorded using double-entry bookkeeping to guarantee financial integrity and support full audit trails.
+  </Card>
+  <Card title="Mobile SMS Gateway" icon="mobile" href="/core-concepts/gateways">
+    Connect local Android phones to automatically parse mobile-banking SMS alerts (bKash, Nagad, etc.) and automate manual payment verification flows.
+  </Card>
+  <Card title="Plugin Architecture" icon="puzzle-piece" href="/core-concepts/gateways">
+    Extend OwnPay with gateway plugins, custom payment methods, and admin panel integrations through a structured plugin system.
+  </Card>
+</CardGroup>
+
+## OwnPay Is Not a SaaS
+
+When you deploy OwnPay, you control the server, the database, the credentials, and all customer data. There is no OwnPay cloud, no transaction fees paid to OwnPay, and no vendor lock-in. You are running payment infrastructure the same way you would run any other self-hosted application.
+
+<Note>
+  OwnPay requires you to manage your own hosting environment, database, SSL certificate, and server maintenance. Review the [System Requirements](/getting-started/requirements) before proceeding with installation.
+</Note>
+
+## Who Should Use OwnPay
+
+OwnPay is designed for operators and developers who need more control than SaaS payment tools provide.
+
+| Role | Primary Use Case |
+|------|-----------------|
+| **Platform Operators** | Host a centralized payment infrastructure for multiple businesses or clients under one installation |
+| **Agency Owners** | Deliver white-labeled checkout flows for clients, each on their own custom domain with their own branding |
+| **Fintech Developers** | Build and integrate custom payment flows, plugins, and automations via the full REST API |
+| **Finance Teams** | Audit transaction records, reconcile ledger balances, and export financial reports |
+
+## Quick Start Path
+
+<Steps>
+  <Step title="Check System Requirements">
+    Verify your server meets the minimum PHP, MySQL, and extension requirements before downloading OwnPay. See [System Requirements](/getting-started/requirements).
+  </Step>
+  <Step title="Install OwnPay">
+    Download the latest release from GitHub, upload it to your server, and run the web-based installer at `yourdomain.com/install`. See [Installation Guide](/getting-started/installation).
+  </Step>
+  <Step title="Log In as Master Admin">
+    After installation, log in at `yourdomain.com/login` with the administrator credentials you created during the installer wizard.
+  </Step>
+  <Step title="Create Your First Brand">
+    Navigate to **People → Brands** and add a brand with a name, currency, and timezone. This is the merchant entity that will process payments.
+  </Step>
+  <Step title="Configure a Payment Gateway">
+    Go to **Gateways** and connect your payment provider (Stripe, PayPal, bKash, or another supported gateway) to your brand.
+  </Step>
+  <Step title="Generate an API Key or Payment Link">
+    Visit **Developer Hub** to generate API credentials for programmatic integration, or create a **Payment Link** to start accepting payments immediately without any code.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="System Requirements" icon="server" href="/getting-started/requirements">
+    Review the server specs, PHP extensions, and hosting environment needed to run OwnPay.
+  </Card>
+  <Card title="Installation Guide" icon="download" href="/getting-started/installation">
+    Step-by-step instructions for shared hosting, VPS, and Docker deployments.
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/core-concepts/brands-and-stores">
+    Understand the multi-brand model, payment lifecycle, and RBAC system before building.
+  </Card>
+  <Card title="Payment Flow" icon="arrow-right-arrow-left" href="/core-concepts/payment-flow">
+    Trace a payment from API intent creation through gateway callback to webhook delivery.
+  </Card>
+</CardGroup>

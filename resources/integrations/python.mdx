@@ -1,0 +1,360 @@
+---
+title: "Integrate OwnPay with Python Applications"
+sidebarTitle: "Python"
+description: "Step-by-step guide to calling the OwnPay REST API from Python using the requests library — payments, webhooks, and error handling."
+---
+
+Python's ecosystem makes it straightforward to integrate OwnPay into any web framework or backend service. This guide uses the widely available `requests` library to demonstrate the complete integration flow: creating payment intents, verifying outcomes, handling incoming webhooks, issuing refunds, and gracefully managing API errors — all against OwnPay's JSON REST API.
+
+<Info>
+OwnPay has no official Python SDK package at this time. All integration is done directly over HTTP using `requests` (or any HTTP client you prefer, such as `httpx` or `aiohttp`).
+</Info>
+
+## Prerequisites
+
+Install the `requests` library if it is not already in your environment:
+
+```bash
+pip install requests
+```
+
+Store your API key as an environment variable rather than hard-coding it in source files:
+
+```bash
+export OWNPAY_API_KEY="op.xxxxxxxxxxxxx"
+export OWNPAY_BASE_URL="https://pay.yourbrand.com/api/v1"
+```
+
+---
+
+## Client Setup
+
+Create a reusable session with your authentication header pre-configured:
+
+```python
+import os
+import requests
+
+BASE_URL = os.environ["OWNPAY_BASE_URL"]
+API_KEY  = os.environ["OWNPAY_API_KEY"]
+
+session = requests.Session()
+session.headers.update({
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type":  "application/json",
+    "Accept":        "application/json",
+})
+```
+
+Using a `Session` object means the `Authorization` header is sent automatically on every request, and the underlying TCP connection is reused for efficiency.
+
+---
+
+## Health Check
+
+Verify that your OwnPay instance is reachable before running integration tests or application startup checks:
+
+```python
+def health_check():
+    resp = session.get(f"{BASE_URL}/health")
+    resp.raise_for_status()
+    data = resp.json()["data"]
+    print(f"Status : {data['status']}")
+    print(f"Version: {data['version']}")
+    print(f"DB     : {data['db']}")
+    print(f"Gateways active: {data['gateways']}")
+    return data
+
+health_check()
+```
+
+<Note>
+`GET /health` requires no authentication. You can safely call it from monitoring scripts or health-check endpoints without exposing an API key.
+</Note>
+
+---
+
+## Creating a Payment Intent
+
+The core integration step: call `POST /payments` to create a session, then redirect your customer to the returned `checkout_url`.
+
+```python
+def create_payment(amount: str, currency: str, reference: str, **kwargs):
+    """
+    Create a payment intent and return the checkout URL.
+
+    :param amount:    Decimal string, e.g. "500.00"
+    :param currency:  ISO 4217 code, e.g. "BDT"
+    :param reference: Your internal order/invoice ID
+    :param kwargs:    Optional fields: callback_url, redirect_url, cancel_url,
+                      customer_email, customer_name, customer_phone,
+                      gateway, metadata
+    :returns: dict with payment_id, token, checkout_url, status
+    """
+    payload = {
+        "amount":    amount,
+        "currency":  currency,
+        "reference": reference,
+        **kwargs,
+    }
+    resp = session.post(f"{BASE_URL}/payments", json=payload)
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+# Example usage
+payment = create_payment(
+    amount="500.00",
+    currency="BDT",
+    reference="INV-10029",
+    callback_url="https://my-store.com/webhooks/ownpay",
+    redirect_url="https://my-store.com/checkout/success",
+    cancel_url="https://my-store.com/checkout/cancel",
+    customer_email="customer@example.com",
+    customer_name="John Doe",
+    metadata={"store_id": "dhaka-branch"},
+)
+
+print(f"Payment ID  : {payment['payment_id']}")
+print(f"Checkout URL: {payment['checkout_url']}")
+
+# In a web framework, redirect the user:
+# return redirect(payment["checkout_url"])
+```
+
+---
+
+## Verifying a Payment
+
+After the customer returns to your `redirect_url`, verify the payment status before fulfilling the order:
+
+```python
+def get_payment(payment_id: str):
+    """Retrieve a payment intent and its transaction details."""
+    resp = session.get(f"{BASE_URL}/payments/{payment_id}")
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+def verify_and_fulfill(payment_id: str, expected_reference: str):
+    data = get_payment(payment_id)
+
+    if data["status"] != "completed":
+        raise ValueError(f"Payment not completed — status: {data['status']}")
+
+    if data.get("reference") != expected_reference:
+        raise ValueError("Reference mismatch — possible replay attack")
+
+    print(f"Payment confirmed: {data['trx_id']} for {data['amount']} {data['currency']}")
+    # Fulfil the order here
+    return data
+```
+
+<Warning>
+Always verify the payment server-side by calling `GET /payments/{payment_id}` or `GET /transactions/{trx_id}`. Never rely solely on query parameters appended to your `redirect_url` — they can be tampered with.
+</Warning>
+
+---
+
+## Handling Webhook Callbacks
+
+OwnPay POSTs a `payment.completed` event to your `callback_url`. Here is a Flask handler that processes the event and re-verifies the transaction before taking action:
+
+```python
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route("/webhooks/ownpay", methods=["POST"])
+def ownpay_webhook():
+    event = request.get_json(force=True)
+
+    if not event or event.get("event") != "payment.completed":
+        return jsonify({"ok": False, "reason": "unrecognised event"}), 400
+
+    trx_id = event["data"]["trx_id"]
+
+    # Re-verify by fetching from the API — never trust the payload alone
+    resp = session.get(f"{BASE_URL}/transactions/{trx_id}")
+    if resp.status_code != 200:
+        return jsonify({"ok": False, "reason": "transaction not found"}), 400
+
+    transaction = resp.json()["data"]
+
+    if transaction["status"] != "completed":
+        return jsonify({"ok": False, "reason": "not completed"}), 400
+
+    # Safe to fulfil the order
+    print(f"Fulfilling order for reference: {transaction.get('reference')}")
+
+    return jsonify({"ok": True}), 200
+```
+
+<Tip>
+Your webhook endpoint must return an HTTP `2xx` response within **10 seconds**. For heavyweight processing (database writes, emails, third-party calls), enqueue a background job and return `200` immediately.
+</Tip>
+
+---
+
+## Listing Transactions
+
+Retrieve a filtered, paginated list of transactions for reconciliation or reporting:
+
+```python
+def list_transactions(status=None, from_date=None, to_date=None, page=1, per_page=25):
+    params = {"page": page, "per_page": per_page}
+    if status:
+        params["status"] = status
+    if from_date:
+        params["from"] = from_date
+    if to_date:
+        params["to"] = to_date
+
+    resp = session.get(f"{BASE_URL}/transactions", params=params)
+    resp.raise_for_status()
+    body = resp.json()
+    return body["data"], body["meta"]
+
+
+transactions, meta = list_transactions(
+    status="completed",
+    from_date="2026-06-01",
+    to_date="2026-06-30",
+)
+
+print(f"Found {meta['total']} transactions across {meta['total_pages']} pages")
+for txn in transactions:
+    print(f"  {txn['trx_id']}  {txn['amount']} {txn['currency']}  {txn['status']}")
+```
+
+---
+
+## Issuing a Refund
+
+```python
+def refund_transaction(trx_id: str, amount: str = None, reason: str = None):
+    """
+    Issue a full or partial refund.
+
+    :param trx_id:  OwnPay transaction reference, e.g. "OP-481029304"
+    :param amount:  Partial amount string; omit for a full refund
+    :param reason:  Human-readable reason
+    """
+    payload = {"trx_id": trx_id}
+    if amount:
+        payload["amount"] = amount
+    if reason:
+        payload["reason"] = reason
+
+    resp = session.post(f"{BASE_URL}/refunds", json=payload)
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+refund = refund_transaction(
+    trx_id="OP-481029304",
+    amount="150.00",
+    reason="Customer requested return",
+)
+print(f"Refund {refund['uuid']} — status: {refund['status']}")
+```
+
+---
+
+## Error Handling
+
+OwnPay returns structured error payloads. Handle them consistently across your application:
+
+```python
+class OwnPayError(Exception):
+    """Raised when the OwnPay API returns a non-2xx response."""
+
+    def __init__(self, status_code: int, error: str, errors: list, request_id: str):
+        self.status_code = status_code
+        self.error       = error
+        self.errors      = errors      # per-field validation details
+        self.request_id  = request_id
+        super().__init__(f"[{status_code}] {error} (request_id={request_id})")
+
+
+def safe_request(method: str, path: str, **kwargs):
+    """
+    Thin wrapper that raises OwnPayError for any non-2xx response.
+    """
+    resp = session.request(method, f"{BASE_URL}{path}", **kwargs)
+
+    if not resp.ok:
+        body = {}
+        try:
+            body = resp.json()
+        except ValueError:
+            pass
+        raise OwnPayError(
+            status_code=resp.status_code,
+            error=body.get("error", resp.reason),
+            errors=body.get("errors", []),
+            request_id=body.get("request_id", ""),
+        )
+
+    return resp.json()
+
+
+# Usage
+try:
+    data = safe_request("POST", "/payments", json={"amount": "-1", "currency": "BDT"})
+except OwnPayError as exc:
+    print(f"API error {exc.status_code}: {exc.error}")
+    for field_error in exc.errors:
+        print(f"  Field '{field_error['field']}': {field_error['message']}")
+```
+
+<Accordion title="Common error codes and how to handle them">
+| HTTP Status | Typical cause | Suggested action |
+|-------------|--------------|-----------------|
+| `400` | Business rule violation (e.g. refund exceeds balance) | Show message to operator |
+| `401` | Missing or expired API key | Check `OWNPAY_API_KEY` env var |
+| `403` | Insufficient scope | Generate a key with the required scope |
+| `404` | Wrong payment/transaction ID | Verify the ID before retrying |
+| `409` | Duplicate customer email | Look up existing customer instead |
+| `422` | Validation failure | Inspect `errors` array for field details |
+| `503` | System degraded | Retry with exponential back-off |
+</Accordion>
+
+---
+
+## Customer Management
+
+```python
+def create_customer(name: str, email: str = None, phone: str = None):
+    payload = {"name": name}
+    if email:
+        payload["email"] = email
+    if phone:
+        payload["phone"] = phone
+
+    resp = session.post(f"{BASE_URL}/customers", json=payload)
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+def get_customer(identifier: str):
+    """Look up a customer by URL-encoded email or phone number."""
+    from urllib.parse import quote
+    encoded = quote(identifier, safe="")
+    resp = session.get(f"{BASE_URL}/customers/{encoded}")
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+# Create
+new_customer = create_customer(
+    name="Alice Smith",
+    email="alice@example.com",
+    phone="+8801800000000",
+)
+print(f"Created customer {new_customer['uuid']}")
+
+# Retrieve by email
+customer = get_customer("alice@example.com")
+print(f"Name: {customer['name']}, Phone: {customer['phone']}")
+```

@@ -1,28 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "OwnPay",
+  "projectType": "saas",
+  "projectName": "OwnPay",
+  "projectDescription": "OwnPay is a self-hosted, open-source payment gateway platform that gives operators complete control over multi-brand payment processing, double-entry ledger bookkeeping, webhooks, and a plugin-extensible architecture.",
   "theme": "luma",
-  "colors": {
-    "primary": "#0d97ef",
-    "light": "#142c64",
-    "dark": "#ececec"
-  },
-  "favicon": "https://media.brand.dev/0add21b6-b13f-4828-a5a8-e1511fcc0063.svg",
-  "logo": {
-    "light": "https://media.brand.dev/3dcdfe0a-cc3b-4ff0-a98e-62c7217feed2.svg",
-    "dark": "https://media.brand.dev/f389b046-b724-44dc-907e-de1312778b59.svg"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/own-pay/OwnPay"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/own-pay/OwnPay"
-    }
-  },
+  "primaryColor": "#0d97ef",
+  "lightColor": "#142c64",
+  "darkColor": "#ececec",
   "navigation": {
     "tabs": [
       {
@@ -187,5 +170,42 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Self-hosted, open-source payment gateway with no third-party intermediaries",
+    "Multi-brand management - run multiple isolated merchant stores from one installation",
+    "Double-entry ledger bookkeeping for financial integrity and auditing",
+    "White-labeling - custom domains, logos, CSS, and email templates per brand",
+    "Plugin system - extend with gateway, addon, and theme plugins",
+    "REST API with Bearer token authentication and scoped API keys",
+    "Webhooks with HMAC-SHA256 signature verification and delivery logs",
+    "Mobile & SMS gateway - Android phone pairing for local bank SMS parsing",
+    "Role-based access control (RBAC) for secure team collaboration",
+    "WooCommerce integration and multi-language SDK support"
+  ],
+  "publicApiSurface": [
+    "POST /api/v1/payments - Initiate payment intent",
+    "GET /api/v1/payments/{payment_id} - Retrieve payment details",
+    "GET /api/v1/transactions - List transactions",
+    "GET /api/v1/transactions/{trx_id} - Retrieve transaction",
+    "GET /api/v1/refunds - List refunds",
+    "POST /api/v1/refunds - Request refund",
+    "GET /api/v1/refunds/{trx_id} - Retrieve refund",
+    "GET /api/v1/customers - List customers",
+    "POST /api/v1/customers - Create customer",
+    "GET /api/v1/customers/{identifier} - Retrieve customer",
+    "GET /api/v1/api-keys - List API keys",
+    "POST /api/v1/api-keys - Generate API key",
+    "DELETE /api/v1/api-keys/{id} - Revoke API key",
+    "POST /api/v1/webhooks/tests - Dispatch test webhook",
+    "GET /api/v1/webhooks/deliveries - Webhook delivery log",
+    "GET /health - System health check",
+    "Hook::apply() - Filter hooks",
+    "Hook::do() - Action hooks",
+    "Event::listen() - Event listeners",
+    "Plugin::service() - Access OwnPay services from plugins",
+    "Plugin::config() - Read plugin config",
+    "Route::group() - Register plugin routes",
+    "Menu::add() - Add admin menu items"
+  ]
 }

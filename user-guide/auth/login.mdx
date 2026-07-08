@@ -1,0 +1,101 @@
+---
+title: "Logging In to the OwnPay Admin Panel"
+sidebarTitle: "Login"
+description: "Learn how to securely access the OwnPay admin panel using your email or username, password, and the sovereign single-admin authentication model."
+---
+
+The OwnPay admin panel is protected by a focused, single-entrance authentication gate designed for super-administrators and pre-authorized staff members only. Unlike typical SaaS platforms, OwnPay does not allow self-registration — every account must be provisioned by the super-administrator in advance. This sovereign model ensures that access to sensitive financial ledger data is always tightly controlled.
+
+## Accessing the Login Page
+
+Navigate to your OwnPay instance's login URL in any modern browser. By default, the login interface is available at:
+
+```
+https://your-domain.com/login
+```
+
+<Note>
+  The `/login` slug is configurable. Your super-administrator may have changed it to a custom path (e.g. `/secure-gate-7x2`) for additional security. If you receive a **404 Not Found** at `/login`, contact your administrator for the correct URL.
+</Note>
+
+## Signing In
+
+<Steps>
+  <Step title="Enter your credentials">
+    Type your registered **Email or Username** into the first field. Then enter your **Password** in the second field. Passwords are case-sensitive — ensure Caps Lock is off.
+  </Step>
+  <Step title="Toggle Remember Me (optional)">
+    Check the **Remember me** box only if you are logging in from a private, encrypted personal device. This extends your session duration so you don't need to re-authenticate on every visit.
+  </Step>
+  <Step title="Click Sign In">
+    Press the **Sign In** button to submit your credentials. The system will validate them against the pre-registered account database.
+  </Step>
+  <Step title="Complete 2FA if prompted">
+    If your account has Two-Factor Authentication enabled, you will be automatically redirected to the `/2fa` verification screen. Enter the 6-digit code from your authenticator app to complete the login. See [Two-Factor Authentication](/user-guide/auth/two-factor) for full details.
+  </Step>
+  <Step title="Reach the Dashboard">
+    Upon successful authentication (with or without 2FA), you are redirected to the [Admin Dashboard](/user-guide/dashboard/dashboard), where you can manage all platform activity.
+  </Step>
+</Steps>
+
+## Login Page Fields Reference
+
+| Field / Option | Required | Description |
+|---|---|---|
+| **Email or Username** | Yes | The pre-registered email address or username on your account. |
+| **Password** | Yes | The secure, case-sensitive password for your account. |
+| **Remember me** | No | Extends session lifetime on trusted devices. Unchecked by default. |
+| **Sign In** | — | Submits credentials for verification. |
+| **Forgot password?** | — | Opens the [password recovery](/user-guide/auth/forgot-password) flow. |
+
+## Security Configuration
+
+The login system includes built-in protections that administrators should understand.
+
+<Accordion title="Brute-Force Lockout Policy">
+  After **five (5) failed login attempts** within a 5-minute window, the account is temporarily locked. The lockout period is **5 minutes**. This prevents automated credential stuffing attacks. Once locked, no further attempts are accepted until the window expires — there is no admin override to skip the cooldown.
+</Accordion>
+
+<Accordion title="Customizing the Login URL Slug">
+  The super-administrator can change the login route from `/login` to any arbitrary slug under **Landing Page Settings**. Once changed, any request to the old `/login` path returns a `404 Not Found` page, effectively masking the admin panel from automated scanners. Distribute the new URL only to authorized staff through a secure channel.
+</Accordion>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Secure Your URL" icon="link-slash" href="/user-guide/auth/login">
+    Change the default `/login` slug to a random, hard-to-guess string. This single step significantly reduces exposure to automated bot attacks targeting known admin paths.
+  </Card>
+  <Card title="Use Dedicated Accounts" icon="user-shield" href="/user-guide/auth/login">
+    Never share credentials between staff members. Each person must have a separate account with role-based permissions provisioned by the super-administrator.
+  </Card>
+  <Card title="Enable Two-Factor Auth" icon="mobile-screen-button" href="/user-guide/auth/two-factor">
+    Protect every administrator and staff account with TOTP-based 2FA. A stolen password alone will not grant access to a 2FA-protected account.
+  </Card>
+  <Card title="Always Use HTTPS" icon="lock" href="/user-guide/auth/login">
+    Verify the browser address bar shows a padlock icon and `https://` before entering credentials. Never log in over plain HTTP connections.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Always confirm the browser address bar displays your correct domain name and an active SSL/TLS padlock before typing your password. Phishing pages may mimic the login interface on lookalike domains.
+</Warning>
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| `Invalid credentials` message | Typo in email/username or incorrect password. | Re-verify your credentials carefully. Remember passwords are case-sensitive. |
+| `Account temporarily locked` | Five or more failed attempts within 5 minutes. | Wait 5 minutes for the lockout to expire, then try again carefully. |
+| `404 Not Found` at `/login` | The super-administrator has changed the login URL slug. | Contact your administrator for the correct custom login URL. |
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Two-Factor Authentication" icon="shield-halved" href="/user-guide/auth/two-factor">
+    Set up and use TOTP-based 2FA — the next step in the login flow when 2FA is active on your account.
+  </Card>
+  <Card title="Forgot Password" icon="key" href="/user-guide/auth/forgot-password">
+    Recover access to your account through the administrator-coordinated password reset process.
+  </Card>
+</CardGroup>

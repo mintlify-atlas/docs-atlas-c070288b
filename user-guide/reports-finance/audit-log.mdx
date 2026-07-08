@@ -1,0 +1,124 @@
+---
+title: "Audit Log — Tracking Administrative Activity in OwnPay"
+sidebarTitle: "Audit Log"
+description: "Review a chronological, immutable record of all admin actions, staff logins, settings changes, gateway updates, and security events across your brand."
+---
+
+The Audit Log is OwnPay's built-in compliance and security trail. Every significant action taken by a staff member or the system — from a successful login to a gateway configuration change — is recorded here as an immutable, timestamped entry. Administrators can use the audit log to investigate suspicious activity, attribute configuration changes to specific users, and satisfy internal or external compliance requirements. Entries cannot be modified or deleted through the admin interface, preserving the integrity of the historical record.
+
+## Navigating to the Audit Log
+
+In the OwnPay admin dashboard, expand the **REPORTS & FINANCE** section in the left sidebar and click **Audit Log**. The activity log table loads, showing the most recent entries first.
+
+## What Gets Recorded
+
+OwnPay records audit entries for all critical administrative events, organised across the following categories:
+
+<Tabs>
+  <Tab title="Authentication Events">
+    | Action Tag | Description |
+    |---|---|
+    | `login.success` | A staff member successfully authenticated and opened a dashboard session. |
+    | `login.failed` | A login attempt was made with invalid credentials. Includes the IP address of the attempt. |
+    | `logout` | A staff member explicitly signed out of their session. |
+    | `2fa.enabled` | A staff member enabled Two-Factor Authentication on their account. |
+    | `password.changed` | An account password was updated. |
+  </Tab>
+  <Tab title="Payment Events">
+    | Action Tag | Description |
+    |---|---|
+    | `transaction.approved` | A pending transaction was manually approved by a staff member. |
+    | `transaction.refunded` | A completed transaction was refunded. |
+    | `transaction.cancelled` | A transaction was manually cancelled before completion. |
+    | `invoice.created` | A new customer invoice was generated. |
+    | `invoice.sent` | An invoice was emailed to a customer. |
+  </Tab>
+  <Tab title="Configuration Events">
+    | Action Tag | Description |
+    |---|---|
+    | `gateway.created` | A new payment gateway was installed or manually created. |
+    | `gateway.updated` | An existing gateway's settings, credentials, or status were modified. |
+    | `gateway.deleted` | A gateway was removed from the platform. |
+    | `brand.created` | A new brand storefront was registered. |
+    | `brand.updated` | A brand's settings, domain, or visual configuration was changed. |
+    | `settings.saved` | Platform or brand-level settings were updated. |
+  </Tab>
+  <Tab title="Staff & Access Events">
+    | Action Tag | Description |
+    |---|---|
+    | `staff.created` | A new staff account was created by an administrator. |
+    | `staff.updated` | A staff member's profile, role, or permissions were modified. |
+    | `staff.suspended` | A staff account was suspended, revoking dashboard access. |
+    | `role.created` | A new RBAC role was defined. |
+    | `role.updated` | A role's permission assignments were changed. |
+    | `apikey.created` | A new API key was generated for a brand or developer. |
+    | `apikey.deleted` | An existing API key was revoked. |
+  </Tab>
+</Tabs>
+
+## Audit Log Columns
+
+Each entry in the audit log table provides the following fields:
+
+| Column | Description |
+|---|---|
+| **Time** | The exact date and time the event occurred (month, day, and time displayed in the brand's configured timezone). |
+| **User** | The name of the staff member or system actor who triggered the event (e.g. `Admin User`, `System`). |
+| **Action** | The event identifier tag (e.g. `gateway.created`, `login.failed`, `brand.updated`). |
+| **Entity** | The target object affected by the action (e.g. `manual_gateway #2`, `user #1`, `merchant #3`). |
+| **IP** | The network address from which the request originated. |
+
+## Filtering the Audit Log
+
+<Steps>
+  <Step title="Open the Audit Log page">
+    Navigate to **Reports & Finance → Audit Log**. The table defaults to showing all recent entries, newest first.
+  </Step>
+  <Step title="Filter by action type">
+    Use the **Action** filter input or column search to locate specific event tags (e.g. search `gateway` to find all gateway-related events).
+  </Step>
+  <Step title="Filter by user">
+    Enter a staff member's name or identifier in the **User** filter to see only actions performed by that individual.
+  </Step>
+  <Step title="Filter by date">
+    Use the date range controls to narrow entries to a specific period — for example, the 24 hours following a reported incident.
+  </Step>
+  <Step title="Paginate through results">
+    Use the **Next →** pagination control at the bottom of the table to browse deeper into the historical log.
+  </Step>
+</Steps>
+
+## Using the Audit Log for Compliance Reviews
+
+The audit log is the primary tool for two important compliance use cases:
+
+### Investigating Unauthorised Access Attempts
+
+1. Filter the **Action** column to show `login.failed` entries.
+2. Examine the **IP** column for repeated failures from the same address.
+3. If a single IP shows multiple failed attempts in a short window, consider blocking or rate-limiting that address at your server firewall to prevent brute-force attacks.
+
+### Attributing Configuration Changes
+
+When a gateway stops working, a brand's colours change unexpectedly, or a setting reverts without explanation:
+
+1. Filter the **Action** column for the relevant event tag (e.g. `gateway.updated`, `brand.updated`, or `settings.saved`).
+2. Identify the **Time** entry closest to when the issue was first observed.
+3. Check the **User** column to determine which staff member made the change.
+4. Coordinate with that team member to understand and reverse any unintended modifications.
+
+<Tip>
+  Cross-reference Audit Log timestamps with the Reports page to correlate revenue drops or spikes with specific configuration changes. For example, a sudden drop in completed transactions after a `gateway.updated` entry is a strong indicator of a credential or status change.
+</Tip>
+
+## Audit Log Data Retention
+
+Audit entries are written to the `op_audit_logs` database table and are immutable from the admin portal — no staff member can edit or delete individual entries through the interface. In production environments, a scheduled cron task should archive entries older than 90 days to a secondary storage location to manage database growth while preserving compliance records.
+
+<Note>
+  Audit log entries are scoped by brand. Staff members can only see log entries that belong to their assigned brand (`merchant_id`). Super-administrators can see entries across all brands. This scoping prevents cross-brand data exposure in multi-tenant environments.
+</Note>
+
+<Warning>
+  Never disable the audit logging system, even temporarily for maintenance purposes. Audit logs are a mandatory component for security compliance. Gaps in the log history can undermine investigation timelines and may violate regulatory requirements if you process payments subject to financial auditing standards.
+</Warning>

@@ -1,0 +1,183 @@
+---
+title: "Ledger: Double-Entry Bookkeeping and Reconciliation"
+sidebarTitle: "Ledger"
+description: "Understand OwnPay's double-entry ledger — how payments, fees, and transfers are recorded as debit/credit pairs, and how to reconcile your merchant balance."
+---
+
+The OwnPay Ledger is the financial backbone of the entire platform. Every payment received, gateway fee charged, refund issued, and balance adjustment made is permanently recorded here as a double-entry bookkeeping journal entry — meaning every transaction generates both a debit (DR) and a credit (CR) posting that must balance to zero. This GAAP-compliant design ensures complete auditability and protects the integrity of your financial records. No money enters or leaves your merchant account without a corresponding, balanced ledger trail.
+
+## Accessing the Ledger Page
+
+1. Log in to the OwnPay admin panel.
+2. In the left sidebar under the **PAYMENTS** section, click **Ledger**.
+
+## Page Layout
+
+The Ledger interface has two primary sections:
+
+### 1. Account Summary Header
+
+At the top of the page, the **Current Balance** displays your brand's net financial position in its default currency (e.g. `BDT` or `USD`). This figure is calculated dynamically as the sum of all posted credit entries minus all posted debit entries. It increases with every successful payment credit and decreases when fees, refunds, or withdrawal debits are posted.
+
+<Note>
+  The Current Balance reflects only entries with a `posted` status. Pending manual gateway approvals or incomplete webhook callbacks may not yet be reflected. Always cross-reference with the Balance Verification report for full reconciliation.
+</Note>
+
+### 2. Ledger Entries Table
+
+Below the account summary, the entries table lists every journal posting in chronological order:
+
+| Column | Description |
+|---|---|
+| **DATE** | UTC timestamp when the ledger record was written. |
+| **REFERENCE** | The originating document identifier — a Transaction ID (e.g. `TXN-20260501-0042`), Invoice ID (e.g. `INV-2026-001`), or Checkout Token. Click the reference to navigate to the source record. |
+| **TYPE** | `Credit (CR)` or `Debit (DR)` — indicates the posting direction (see [Understanding Debit and Credit](#understanding-debit-and-credit)). |
+| **AMOUNT** | The monetary value of this specific entry line in the brand's default currency. |
+| **STATUS** | Posting state of the entry — typically `posted` once successfully written and balanced, or `pending` for entries awaiting confirmation. |
+| **DESCRIPTION** | Human-readable explanation of the entry (e.g. `Payment received for INV-2026-001` or `Gateway fee adjustment — bKash`). |
+
+## Understanding Debit and Credit
+
+<Tabs>
+  <Tab title="Credit (CR)">
+    **Credit entries increase your merchant payable balance.** They are posted when:
+    - A customer successfully completes checkout (revenue recognized).
+    - A manual payment is confirmed by an administrator.
+
+    Example: A `1,500.00 BDT` payment received for Invoice `INV-2026-001` creates a **CR 1,500.00** entry to the `MERCHANT_PAYABLE` account.
+  </Tab>
+  <Tab title="Debit (DR)">
+    **Debit entries decrease your merchant payable balance.** They are posted when:
+    - A gateway processing fee is deducted (e.g. bKash charges 1.5% per transaction).
+    - A customer refund is issued (reversing the original credit).
+    - A payout or withdrawal is processed from the merchant account.
+
+    Example: A bKash fee of `22.50 BDT` on a `1,500.00 BDT` transaction creates a **DR 22.50** entry against the merchant balance, leaving a **net credit** of `1,477.50 BDT`.
+  </Tab>
+</Tabs>
+
+## How Double-Entry Works in OwnPay
+
+Every completed checkout automatically generates a **balanced pair** of ledger entries:
+
+```
+When a customer pays 1,500.00 BDT via bKash:
+
+CR  1,500.00 BDT   MERCHANT_PAYABLE      "Payment received — TXN-20260501-0042"
+DR     22.50 BDT   GATEWAY_FEE_EXPENSE   "bKash processing fee — TXN-20260501-0042"
+DR  1,477.50 BDT   ASSET_RECEIVABLE      "Net funds received — TXN-20260501-0042"
+```
+
+The sum of all debits equals the sum of all credits — this is the **double-entry invariant** that OwnPay enforces on every transaction. If a payment attempt bypasses the transactional API (e.g. via a direct database write), this invariant is violated, triggering ledger imbalance warnings and automatic transaction rollbacks.
+
+<Warning>
+  **Never directly modify the `op_ledger_entries` or `op_ledger_accounts` database tables.** Manual database edits bypass the balance validation constraints built into OwnPay's accounting engine. Doing so will break the double-entry invariant, causing imbalance warnings, failed reconciliation reports, and potentially corrupted financial records that cannot be undone without a full audit.
+</Warning>
+
+## Reviewing the Ledger
+
+<Steps>
+  <Step title="Check the current balance">
+    Navigate to the **Ledger** page and read the **Current Balance** at the top. This is your brand's live net position — the amount that should match (within timing differences) the balance shown in your external gateway portals.
+  </Step>
+  <Step title="Scan recent entries">
+    Review the ledger entries table. Credit entries (green or labeled `CR`) represent incoming revenue. Debit entries (red or labeled `DR`) represent fees, refunds, or withdrawals. Entries are shown newest-first by default.
+  </Step>
+  <Step title="Filter to a specific time period or reference">
+    Use the table's search or filter controls to narrow entries by date range or to locate a specific **REFERENCE** ID. This is useful for monthly accounting close-outs or when investigating a customer dispute.
+  </Step>
+</Steps>
+
+## Auditing a Specific Transaction
+
+<Steps>
+  <Step title="Locate the ledger entry">
+    Find the entry in the ledger table that corresponds to the transaction or invoice you are auditing. Use the **REFERENCE** column to identify it by its Transaction ID or Invoice ID.
+  </Step>
+  <Step title="Copy the reference identifier">
+    Note or copy the full REFERENCE value (e.g. `TXN-20260501-0042`).
+  </Step>
+  <Step title="Cross-reference in Transactions">
+    Navigate to [Transactions](/user-guide/payments/transactions) and search for the copied reference ID. The transaction detail page shows the full customer metadata, gateway TRX ID, IP address, and fee breakdown — complementing what the ledger shows from a financial perspective.
+  </Step>
+  <Step title="Verify the debit/credit pair balances">
+    Confirm that for every CR entry you see a corresponding DR entry of equal total value on the same reference. If the pair does not balance, investigate whether a webhook callback failed or a manual entry was incorrectly posted.
+  </Step>
+</Steps>
+
+## Ledger Entry Fields Reference
+
+| Column | Type | Description |
+|---|---|---|
+| **DATE** | Timestamp | UTC date and time the entry was written to the ledger. |
+| **REFERENCE** | Text / Link | Originating document ID — Transaction, Invoice, or Checkout Token. |
+| **TYPE** | Code | `Credit (CR)` — increases balance; `Debit (DR)` — decreases balance. |
+| **AMOUNT** | Currency | The value of this specific posting line in the brand's default currency. |
+| **STATUS** | Label | `posted` (finalized and balanced), or `pending` (awaiting gateway confirmation). |
+| **DESCRIPTION** | Text | Human-readable explanation of why this entry was created. |
+
+## Reconciliation
+
+Weekly reconciliation is strongly recommended to catch discrepancies before they compound.
+
+<Steps>
+  <Step title="Export or note the Current Balance">
+    Record the **Current Balance** shown on the Ledger page for your selected brand.
+  </Step>
+  <Step title="Compare with gateway portal balances">
+    Log in to each of your external payment gateway portals (e.g. bKash Merchant Portal, Nagad Dashboard, Stripe Dashboard) and note the total settled amounts for the same period.
+  </Step>
+  <Step title="Identify discrepancies">
+    Differences are normal for amounts in `pending` status (not yet posted) or offline manual gateways with approvals still queued. Flag any unexplained discrepancies for investigation.
+  </Step>
+  <Step title="Use Balance Verification report">
+    Navigate to **Reports & Finance → Balance Verification** for a structured reconciliation report that compares the OwnPay ledger balance against configured gateway reference totals.
+  </Step>
+</Steps>
+
+<Tip>
+  Schedule a brief weekly reconciliation session — typically 10–15 minutes — to compare the Ledger's Current Balance with your gateway portal statements. Early detection of discrepancies is far easier to resolve than investigating months of accumulated imbalance.
+</Tip>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Reconcile Weekly" icon="calendar-check" href="/user-guide/payments/ledger">
+    Compare the Current Balance against your bKash, Nagad, and Stripe portal summaries every week. Catching a discrepancy early — before month-end — dramatically reduces investigation time.
+  </Card>
+  <Card title="Use Reference IDs for Disputes" icon="magnifying-glass" href="/user-guide/payments/transactions">
+    When a customer disputes a charge, copy the transaction REFERENCE from the ledger and look it up in the Transactions page. The gateway TRX ID there links directly to the external gateway's own records.
+  </Card>
+  <Card title="Never Bypass the API" icon="ban" href="/user-guide/payments/ledger">
+    All payments, refunds, and adjustments must be processed through OwnPay's transactional API endpoints. Directly inserting or deleting database rows bypasses balance checks and permanently corrupts the ledger.
+  </Card>
+  <Card title="Monitor Pending Entries" icon="clock" href="/user-guide/payments/ledger">
+    Entries stuck in `pending` status may indicate unconfirmed manual gateway payments or failed webhooks. Resolve them promptly to keep the Current Balance accurate.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| Current Balance does not match my gateway portal total | Fees, pending payouts, or manual gateway approvals are not yet posted. | Check the **Balance Verification** report under Reports & Finance to identify unposted entries. |
+| No ledger entries appear | The active brand has no completed transaction history, or you are viewing a newly created brand. | Process at least one successful payment, or confirm the correct brand context is selected in the header. |
+| A debit entry exists with no matching credit (imbalance) | A webhook callback partially failed, or a manual entry was incorrectly posted. | Review **Developer → Webhook Logs** for the affected REFERENCE ID and reprocess or escalate to a system administrator. |
+| Ledger balance is negative | More debits (fees, refunds, payouts) have been posted than credits (completed payments). | Review recent debit entries for unexpected refunds or fee postings, and cross-reference with Transactions for legitimacy. |
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Transactions" icon="arrow-right-arrow-left" href="/user-guide/payments/transactions">
+    View customer metadata, gateway TRX IDs, and fee breakdowns for every transaction referenced in the ledger.
+  </Card>
+  <Card title="Invoices" icon="file-invoice-dollar" href="/user-guide/payments/invoices">
+    Create invoices and track the ledger credits generated when customers complete invoice payment.
+  </Card>
+  <Card title="Dashboard" icon="gauge" href="/user-guide/dashboard/dashboard">
+    See the high-level revenue figures that the ledger underpins — and verify they match your posted credit totals.
+  </Card>
+  <Card title="Payment Links" icon="link" href="/user-guide/payments/payment-links">
+    Review ledger entries generated by payment link checkouts alongside all other transaction sources.
+  </Card>
+</CardGroup>

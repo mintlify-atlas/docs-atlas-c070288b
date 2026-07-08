@@ -1,0 +1,121 @@
+---
+title: "Financial Reports — Analysing Payment Performance"
+sidebarTitle: "Reports"
+description: "Generate and export financial reports with revenue totals, transaction counts, average values, gateway fees, and custom date-range filtering per brand."
+---
+
+The Reports portal gives administrators a real-time window into their brand's financial performance. Rather than manually querying the database, you can apply date range and gateway filters to instantly compute key metrics — total revenue, transaction count, average ticket size, and gateway fee totals — and export the underlying data as a CSV spreadsheet for bookkeeping, reconciliation, or stakeholder reporting. All figures are scoped to your currently active brand and denominated in that brand's base currency.
+
+## Navigating to Reports
+
+In the OwnPay admin dashboard, expand the **REPORTS & FINANCE** section in the left sidebar and click **Reports**. The analytics portal opens with the filter bar at the top and KPI summary cards below it.
+
+## Report Types and Views
+
+OwnPay's Reports portal provides the following analytical views, all driven by the same filter controls:
+
+<CardGroup cols={2}>
+  <Card title="Transaction Summary" icon="receipt" href="/user-guide/reports-finance/reports#key-metrics">
+    Aggregate totals across all completed transactions in the selected period — total revenue, count, average value, and fee totals.
+  </Card>
+  <Card title="Revenue by Gateway" icon="plug" href="/user-guide/reports-finance/reports#filtering-by-gateway">
+    Filter the summary to a single gateway to see how much revenue each payment method contributes. Compare gateways by switching the gateway selector.
+  </Card>
+  <Card title="Revenue by Period" icon="calendar" href="/user-guide/reports-finance/reports#filtering-by-date-range">
+    Adjust the From and To date pickers to analyse performance across any custom time window — a single day, a month, a quarter, or a full year.
+  </Card>
+  <Card title="Revenue by Brand" icon="store" href="/user-guide/reports-finance/reports#exporting-to-csv">
+    Each brand maintains its own isolated report dataset. Switch between brands in the dashboard to compare performance across storefronts.
+  </Card>
+</CardGroup>
+
+## Key Metrics
+
+The four KPI summary cards at the top of the report provide an instant financial snapshot for the selected filter window:
+
+| Metric | Description |
+|---|---|
+| **Total Revenue** | The sum of all completed payment amounts in the brand's base currency. Refunds are factored into the net calculation. |
+| **Transactions** | The total count of completed (successful) payment records in the selected period. |
+| **Avg Transaction** | The average payment value, calculated as Total Revenue ÷ Transaction Count. Useful for understanding typical customer spend. |
+| **Total Fees** | The cumulative gateway processing fees applied across all transactions in the period. Compare this against your processor statements to verify fee configurations. |
+
+## Filtering Reports
+
+### Filtering by Date Range
+
+<Steps>
+  <Step title="Set the From date">
+    Click the **From** date picker and select the start date of the reporting period. The default is the first day of the current calendar month.
+  </Step>
+  <Step title="Set the To date">
+    Click the **To** date picker and select the end date. The default is today's date.
+  </Step>
+  <Step title="Generate the report">
+    Click **Generate Report**. The KPI cards and analytics table update instantly to reflect the selected window.
+  </Step>
+</Steps>
+
+### Filtering by Gateway
+
+To isolate the performance of a specific payment method:
+
+1. Open the **Gateway** dropdown in the filter bar.
+2. Select a specific gateway (e.g. `Nagad Personal`) or leave it set to **All Gateways** for a combined view.
+3. Click **Generate Report** to refresh the calculations.
+
+<Tip>
+  Use gateway filtering to identify your highest-revenue payment method and ensure it is always active and correctly configured. If one gateway suddenly drops in transaction volume, it may indicate a configuration issue or an outage.
+</Tip>
+
+## Exporting Reports to CSV
+
+<Steps>
+  <Step title="Apply your desired filters">
+    Set the date range and gateway filter as described above, then click **Generate Report** to confirm the scope.
+  </Step>
+  <Step title="Click Export CSV">
+    Click the **Export CSV** link next to the report header. OwnPay will compile the filtered transaction dataset and trigger a file download.
+  </Step>
+  <Step title="Review the exported file">
+    The downloaded file is named `report_{from}_{to}.csv` and contains one row per transaction with the following columns: `ID`, `Gateway`, `Currency`, `Amount`, `Status`, and `Date`.
+  </Step>
+</Steps>
+
+<Note>
+  Refunded gateway fees are deducted from net totals in the CSV export, matching the figures shown in the on-screen KPI cards. The export reflects only completed transactions — pending and failed payments are excluded from revenue totals.
+</Note>
+
+## Report Query Fields Reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| **From Date** | Date picker | 1st of current month | Start of the reporting period (inclusive). |
+| **To Date** | Date picker | Current date | End of the reporting period (inclusive). |
+| **Gateway** | Select | All Gateways | Filter to a specific payment processor or manual gateway. |
+| **Export CSV** | Link | — | Download a spreadsheet of the filtered raw transaction data. |
+
+## Reading the Analytics Chart
+
+Below the KPI cards, OwnPay renders a detailed analytics chart and breakdown table for the selected period and gateway. If no completed transactions exist in the selected window, the panel displays "No transaction data for this period." This is expected for new brands or very narrow date ranges with no activity.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Archive CSV exports regularly" icon="folder-open" href="/user-guide/reports-finance/reports#exporting-reports-to-csv">
+    Export and securely archive monthly CSV reports. These serve as your primary bookkeeping backup in the event of database issues.
+  </Card>
+  <Card title="Reconcile gateway fees" icon="scale-balanced" href="/user-guide/reports-finance/reports#key-metrics">
+    Compare the **Total Fees** figure in OwnPay against your payment processor's billing statements each month to catch any fee configuration drift.
+  </Card>
+  <Card title="Verify base currency matches expectations" icon="circle-dollar-to-slot" href="/user-guide/gateways/currencies">
+    All amounts in the Reports portal are shown in the brand's base currency. If figures look off, confirm the correct currency is set under **Gateways → Currencies & Rates**.
+  </Card>
+  <Card title="Limit export date ranges for large volumes" icon="calendar-days" href="/user-guide/reports-finance/reports#filtering-by-date-range">
+    For brands processing thousands of transactions daily, avoid generating reports spanning more than one year at a time to prevent slow server responses and large file downloads.
+  </Card>
+</CardGroup>
+
+<Warning>
+  CSV exports contain transaction IDs, payment amounts, gateway slugs, and timestamps. Treat these files as sensitive financial records. Do not share them with unauthorised staff or store them in unsecured cloud folders accessible to external parties.
+</Warning>

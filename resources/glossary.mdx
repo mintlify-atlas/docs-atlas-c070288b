@@ -1,0 +1,106 @@
+---
+title: "OwnPay Glossary: Terms and Concepts Explained"
+sidebarTitle: "Glossary"
+description: "Definitions for every OwnPay-specific term, concept, and acronym used across the codebase, API reference, and documentation."
+---
+
+OwnPay introduces a number of platform-specific terms that appear consistently throughout the codebase, API responses, and documentation. This glossary defines each term precisely so that contributors, integrators, and operators share a common vocabulary. Terms are listed alphabetically.
+
+<Accordion title="Addon Plugin">
+  A plugin type that extends OwnPay's core functionality beyond payment processing. Addons can register new admin dashboard screens, add REST API endpoints, execute scheduled background jobs, create database migration tables, or inject UI components. Addons live in `modules/addons/{slug}/` and declare their capabilities in `manifest.json`.
+</Accordion>
+
+<Accordion title="API Key Scopes (read / write / admin)">
+  The permission boundary assigned to a Bearer API key. Three scopes are supported:
+
+  - **`read`** — Data retrieval only (GET endpoints). Safe to embed in server-side reporting scripts.
+  - **`write`** — Mutating endpoints such as creating payment intents, issuing refunds, and managing customers. Should be kept server-side.
+  - **`admin`** — Super-admin tasks including key generation, system settings, and the Admin API (`/api/admin/v1/*`). Never expose in client-side code.
+
+  Keys are prefixed with `op.`, stored SHA-256-hashed at rest, and shown in plaintext only once upon creation.
+</Accordion>
+
+<Accordion title="Brand">
+  An isolated business entity or store configured within a single OwnPay installation. Each brand has its own isolated database scope (enforced via `merchant_id` on every scoped table), its own custom domain, gateways, customers, invoices, ledger accounts, and staff roles. OwnPay is a multi-brand orchestrator managed by a single **Sovereign Owner**. A brand is also called a "merchant" in the database schema (`op_merchants`).
+</Accordion>
+
+<Accordion title="Checkout URL">
+  The customer-facing URL that initiates a payment session, e.g., `https://pay.yourbrand.com/checkout/{token}`. The URL contains only the **Checkout Token** — the payment amount, currency, and gateway details are never exposed in the URL. Checkout URLs are always constructed via `DomainUrlService::buildCheckoutUrl()` so they use the brand's custom domain automatically.
+</Accordion>
+
+<Accordion title="Double-Entry Bookkeeping">
+  The financial accounting method used by OwnPay's ledger engine. Every movement of money is recorded as a **balanced pair** of debits and credits across ledger accounts. Assets and Expenses increase on debit; Liabilities, Equity, and Revenue increase on credit. The system verifies that `SUM(debits) === SUM(credits)` using `bccomp()` at four-decimal precision before any journal is committed. This ensures the ledger is mathematically sound and auditable at any point in time.
+</Accordion>
+
+<Accordion title="Event">
+  A named point in OwnPay's execution flow where code can react to something that happened. Events are fired as **actions** via `EventManager::doAction()`. Built-in events include `system.boot`, `payment.intent.created`, `payment.intent.expired`, `payment.completed`, `payment.failed`, `refund.created`, `dispute.created`, `customer.created`, `domain.mapped`, `domain.verified`, and `domain.removed`. Plugins register listeners for events in their `manifest.json` or programmatically.
+</Accordion>
+
+<Accordion title="Gateway">
+  An external payment processor or financial service that OwnPay integrates with to initiate, verify, and refund transactions. Each gateway is implemented as a **Gateway Plugin** implementing `GatewayAdapterInterface`. OwnPay ships with 123 built-in gateway adapters.
+</Accordion>
+
+<Accordion title="Gateway Plugin">
+  A sandboxed PHP class inside `modules/gateways/{slug}/` that implements `OwnPay\Gateway\GatewayAdapterInterface`. The interface requires `slug()`, `initiate()`, `verify()`, `verifyWebhook()`, `refund()`, `supports()`, and `supportedCurrencies()` methods. The `GatewayDefaults` trait provides no-op defaults so an adapter only implements what it supports.
+</Accordion>
+
+<Accordion title="gateway_trx_id">
+  The transaction identifier assigned by the external payment gateway (e.g., a Stripe charge ID like `ch_3...`). Stored as `op_transactions.gateway_trx_id`. Distinguished from `trx_id`, which is OwnPay's internal identifier. The `gateway_trx_id` is used when calling the gateway's refund API.
+</Accordion>
+
+<Accordion title="Hook">
+  A point in OwnPay's execution flow where plugins can register callbacks to either react to events (**actions**) or transform values in-flight (**filters**). OwnPay uses a WordPress-style event system:
+
+  - **Actions** (`doAction`) — fire-and-forget; plugins react but cannot modify the outcome.
+  - **Filters** (`applyFilter`) — plugins receive a value, transform it, and return the modified version.
+
+  Hooks are declared in plugin manifests or registered programmatically via `EventManager::addAction()` and `EventManager::addFilter()`.
+</Accordion>
+
+<Accordion title="Ledger">
+  The double-entry bookkeeping engine in OwnPay, backed by three database tables: `op_ledger_accounts` (account definitions), `op_ledger_transactions` (journal entries), and `op_ledger_entries` (individual debit/credit lines). Payments, refunds, and fees are posted automatically on completion. The ledger supports multiple currencies and multiple brands, with all monetary values stored as `bcmath` strings.
+</Accordion>
+
+<Accordion title="Paired Device">
+  A physical mobile device (Android/iOS) linked to an OwnPay brand via a JWT token obtained through the OTP device-pairing flow. Paired devices send periodic heartbeats, receive push notifications for transaction events, and forward incoming SMS messages to automate manual payment matching. Devices can be revoked individually or in bulk from the admin panel.
+</Accordion>
+
+<Accordion title="Payment Intent">
+  A database record (`op_payment_intents`) that tracks the full lifecycle of a payment session. It stores state, billing and customer metadata, the selected gateway, amount, currency, and expiry. A payment intent moves through `pending → processing → completed / failed / cancelled / expired`. Once payment is verified, a **Transaction** record is created and linked to the intent.
+</Accordion>
+
+<Accordion title="Payment Link">
+  A reusable, shareable URL (e.g., `/pay/annual-subscription`) that customers can visit to pay a fixed or variable amount. Payment links support custom fields, usage limits, expiration dates, and per-link redirect URLs. Unlike a Payment Intent, a payment link can be used multiple times up to its configured usage cap.
+</Accordion>
+
+<Accordion title="RBAC (Role-Based Access Control)">
+  The access control model used by OwnPay for admin panel users. Super-admins create custom roles per brand and assign granular permissions to each role. Staff members are assigned a role; `PermissionMiddleware` enforces the required permission for every admin route on every request. There is no client-side permission caching — permissions are loaded from `op_role_permissions` per request.
+</Accordion>
+
+<Accordion title="SMS Template">
+  A per-gateway configuration that defines a regex pattern used to extract transaction fields (amount, sender, transaction ID) from incoming SMS messages. Templates are managed in **Admin → Mobile & SMS → SMS Templates** and can be tested against sample SMS bodies using the built-in regex tester without processing a real payment.
+</Accordion>
+
+<Accordion title="Sovereign Owner Model">
+  OwnPay's fundamental design principle: a single super-administrator owns and controls the entire installation. There is no public sign-up, no multi-tenant separation between unrelated parties, and no shared infrastructure. The sovereign owner creates brands for different businesses, assigns staff roles per brand, and retains full access to all data. This model enables complete white-labeling while keeping administration centralized.
+</Accordion>
+
+<Accordion title="Theme Plugin">
+  A plugin in `modules/themes/{slug}/` consisting of Twig templates, CSS, and JS assets that replaces the default checkout skin for one or more brands. Theme plugins can be activated per brand, enabling completely different visual identities for different stores on the same installation.
+</Accordion>
+
+<Accordion title="Token">
+  A short-lived, secure string (prefixed with `tok_`) generated when a Payment Intent is created. It identifies the checkout session and is the only value embedded in the Checkout URL. The customer's browser never sees the payment amount, gateway slug, or intent UUID — only the token. Tokens are single-use and expire with the intent.
+</Accordion>
+
+<Accordion title="Transaction">
+  A permanent, immutable record (`op_transactions`) created when a payment attempt begins. It stores the OwnPay `trx_id`, `gateway_trx_id`, amount, fee, net amount, currency, gateway slug, status, and metadata. Transactions are never deleted; status changes are always recorded with a timestamp and audit trail.
+</Accordion>
+
+<Accordion title="trx_id">
+  OwnPay's internal transaction identifier, formatted as `OP-XXXXXXXXX` (e.g., `OP-000012345`). Generated at transaction creation and used in all internal references, admin UI, and API responses. Distinguished from `gateway_trx_id`, which is assigned by the external payment provider.
+</Accordion>
+
+<Accordion title="Webhook">
+  An asynchronous HTTP POST callback sent by OwnPay to a merchant's registered endpoint to notify them of transaction state transitions, such as `payment.transaction.completed` or `refund.created`. Each delivery is signed with an `X-OwnPay-Signature` header computed as `HMAC-SHA256(rawBody, webhookSecret)`. Failed deliveries are retried with exponential backoff up to seven attempts before being dead-lettered.
+</Accordion>

@@ -1,0 +1,124 @@
+---
+title: "Inviting and Managing Staff Members in OwnPay"
+sidebarTitle: "Staff"
+description: "Invite team members, assign roles and brand access, enforce least-privilege permissions, and deactivate staff accounts from the OwnPay admin panel."
+---
+
+OwnPay does not allow self-registration — every staff member who needs access to the admin dashboard must be explicitly invited and created by the super-administrator or a user with the `manage_staff` permission. This design ensures that access to sensitive payment data is always deliberate and auditable. Each staff account is scoped to specific brands, carries a defined role, and can be suspended or deleted at any time without affecting transaction records.
+
+<Note>
+  There is no public sign-up page for staff. If a team member tries to access the admin dashboard without an existing account, they will see a login screen with no self-registration option. An administrator must create their account first and provide them with credentials.
+</Note>
+
+## Navigating to Staff
+
+In the OwnPay admin dashboard, expand the **PEOPLE** section in the left sidebar and click **Staff**. The staff directory opens, showing all team members configured under the active brand.
+
+## Staff Directory Overview
+
+The staff table displays key details for each team member at a glance:
+
+| Column | Description |
+|---|---|
+| **Name** | Display name of the staff member. |
+| **Email** | Login email address used for authentication. |
+| **Role** | Assigned role (e.g. Owner, Manager, Support). |
+| **2FA** | Two-Factor Authentication status — `ON` or `OFF`. |
+| **Last Login** | Timestamp of the most recent successful login. |
+| **Status** | Account state — `active` or `suspended`. |
+| **Actions** | **Edit** opens the full staff profile to update details, reset password, or change role. |
+
+## Inviting a New Staff Member
+
+<Steps>
+  <Step title="Click + Add Staff">
+    On the Staff page, click the **+ Add Staff** button in the header to open the creation panel.
+  </Step>
+  <Step title="Enter the staff member's name and email">
+    Fill in their **Name** (e.g. `Sarah Chen`) and **Email** (e.g. `sarah.chen@yourcompany.com`). The email becomes their login username and the address where initial credentials are shared.
+  </Step>
+  <Step title="Set a strong initial password">
+    Enter a temporary **Password** of at least 8 characters, including numbers. Communicate this password to the staff member securely and ask them to change it on first login.
+  </Step>
+  <Step title="Assign a role">
+    Open the **Role** dropdown and select the appropriate role for this staff member (e.g. `Owner`, `Finance Manager`, or a custom role you have defined). The role determines the default set of permissions the user inherits.
+  </Step>
+  <Step title="Fine-tune individual permissions (optional)">
+    If the selected role grants more access than needed, uncheck specific permissions in the **Permissions** grid to restrict access. Conversely, if the role is slightly too restrictive, check additional permissions to grant those specific capabilities without changing the base role.
+  </Step>
+  <Step title="Save the staff account">
+    Click **Create**. The account is created immediately and the staff member can log in using their email and the temporary password you set.
+  </Step>
+</Steps>
+
+## Assigning Staff to Specific Brands
+
+A staff member must be explicitly assigned to each brand they need to manage. Without a brand assignment, they will not see transactions, customers, or reports for that storefront — even if their role technically permits it.
+
+To assign brand access:
+
+1. Open the staff member's **Edit** form.
+2. Locate the **Brand Access** section.
+3. Check the brands this staff member should be able to manage.
+4. Click **Save**.
+
+<Note>
+  Standard staff members cannot switch to other brands unless their profile explicitly grants multi-brand access. This isolation prevents accidental cross-brand data exposure in multi-tenant environments.
+</Note>
+
+## Staff Roles and Permissions
+
+Staff permissions are resolved in two layers:
+
+1. **Role defaults** — The role assigned to the staff member provides a baseline set of permissions (e.g. the `Support` role might include `view_transactions` and `view_customers` only).
+2. **Individual overrides** — Specific permission checkboxes checked on the staff profile override the role defaults, either granting additional access or restricting it.
+
+When a staff member logs in and navigates the dashboard, the sidebar and available pages are dynamically filtered to show only sections their combined permissions allow. Attempting to access a restricted URL directly returns a **403 Forbidden** error.
+
+See the [Roles & Permissions](/user-guide/people/roles) page for the full list of available permission scopes and how to create custom roles.
+
+## Staff Form Fields Reference
+
+| Field | Required | Description |
+|---|---|---|
+| **Name** | Yes | Full display name of the staff member. |
+| **Email** | Yes | Login email address. Must be unique across the platform. |
+| **Password** | Yes | Initial password. Minimum 8 characters, must include numbers. |
+| **Role** | Yes | Base role that defines default permission inheritance. |
+| **Permissions** | No | Individual permission flags that override role defaults. |
+
+## Deactivating a Staff Account
+
+To temporarily suspend a staff member's access without deleting their account:
+
+1. Open the staff member's **Edit** form.
+2. Change **Status** from `Active` to `Suspended`.
+3. Click **Save**. The staff member's session is invalidated immediately and they cannot log in until the status is restored.
+
+Suspended accounts retain all their role assignments, brand scoping, and activity history — making it straightforward to reactivate them if needed.
+
+## Removing a Staff Account
+
+To permanently remove a staff member:
+
+1. Open the staff member's **Edit** form.
+2. Click the **Delete** action and confirm the prompt.
+
+Deleting a staff account does not delete their entries in the Audit Log. Historical actions taken by the account remain visible under their user reference in the activity trail.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="One account per person" icon="user-shield" href="/user-guide/people/staff#inviting-a-new-staff-member">
+    Never share the Owner account credentials. Create a dedicated account for each team member so actions in the Audit Log are traceable to an individual.
+  </Card>
+  <Card title="Enforce two-factor authentication" icon="mobile-screen-button" href="/user-guide/people/staff#staff-directory-overview">
+    Require all staff to enable 2FA from their account profile settings. Accounts with 2FA disabled are flagged in the staff table for easy identification.
+  </Card>
+  <Card title="Apply least privilege" icon="lock" href="/user-guide/people/roles">
+    Only grant the specific permissions each staff member needs for their role. A support agent handling customer queries rarely needs gateway management or webhook access.
+  </Card>
+  <Card title="Suspend before delete" icon="user-slash" href="/user-guide/people/staff#deactivating-a-staff-account">
+    Suspend an account first to immediately revoke access, then review the Audit Log for any recent actions before permanently deleting the record.
+  </Card>
+</CardGroup>

@@ -1,0 +1,367 @@
+---
+title: "Integrate OwnPay in iOS and Android Mobile Apps"
+sidebarTitle: "Mobile"
+description: "Guide to integrating OwnPay payments in iOS and Android apps — secure API flow, in-app WebView checkout, and webhook considerations for mobile."
+---
+
+Mobile applications can integrate OwnPay using the same REST API that powers web and server-side integrations. The key principle is that your **mobile app never holds an API key**: all authenticated requests to OwnPay are made by your backend server, which returns only the `checkout_url` to the app. The app then presents that URL in a WebView or an in-app browser, and your backend receives the `payment.completed` webhook independently of the mobile session.
+
+<Warning>
+**Never embed your OwnPay API key inside a mobile app binary.** Keys embedded in apps can be extracted through decompilation or memory inspection. All `Authorization: Bearer` requests must originate from your server.
+</Warning>
+
+---
+
+## Recommended Architecture
+
+The secure flow for a mobile payment looks like this:
+
+1. **App → Your backend:** User taps "Pay". The app sends the order details to your own API endpoint (e.g. `POST /api/mobile/checkout`).
+2. **Your backend → OwnPay:** Your server calls `POST /payments` with your secret API key and includes a `callback_url` pointing to your webhook handler.
+3. **Your backend → App:** Your server returns the `checkout_url` (and optionally the `payment_id`) to the app.
+4. **App:** Opens `checkout_url` in a WebView or `SFSafariViewController` / `Chrome Custom Tab`.
+5. **Customer:** Completes payment on the OwnPay hosted checkout page.
+6. **OwnPay → Your backend:** Sends `payment.completed` webhook.
+7. **App:** Polls `GET /api/mobile/payment-status/{paymentId}` (your backend), or listens via WebSocket / push notification, until the order is confirmed.
+
+<Info>
+OwnPay's hosted checkout pages are mobile-optimised and render correctly inside `WKWebView` (iOS) and `WebView`/Custom Tabs (Android). No special mobile SDK is required.
+</Info>
+
+---
+
+## Backend: Mobile Checkout Endpoint
+
+Your backend exposes a mobile-friendly endpoint that creates the OwnPay payment intent and returns only the data the app needs:
+
+```javascript
+// Express.js example — your backend
+import express from 'express';
+import { OwnPayClient } from './ownpay-client';
+
+const app    = express();
+const client = new OwnPayClient();
+
+app.post('/api/mobile/checkout', express.json(), async (req, res) => {
+  const { amount, currency, reference, customerEmail, customerName } = req.body;
+
+  try {
+    const intent = await client.createPayment({
+      amount,
+      currency,
+      reference,
+      customer_email: customerEmail,
+      customer_name:  customerName,
+      callback_url:   'https://my-store.com/webhooks/ownpay',
+      redirect_url:   'https://my-store.com/checkout/mobile-success',
+      cancel_url:     'https://my-store.com/checkout/mobile-cancel',
+    });
+
+    // Return only what the app needs — never the API key
+    res.json({
+      paymentId:   intent.payment_id,
+      checkoutUrl: intent.checkout_url,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not create payment' });
+  }
+});
+```
+
+---
+
+## iOS Integration (Swift)
+
+### Step 1 — Request a Checkout URL from Your Backend
+
+```swift
+import Foundation
+
+struct CheckoutResponse: Decodable {
+    let paymentId:   String
+    let checkoutUrl: String
+
+    enum CodingKeys: String, CodingKey {
+        case paymentId   = "paymentId"
+        case checkoutUrl = "checkoutUrl"
+    }
+}
+
+func createCheckout(
+    amount: String,
+    currency: String,
+    reference: String,
+    completion: @escaping (Result<CheckoutResponse, Error>) -> Void
+) {
+    guard let url = URL(string: "https://my-store.com/api/mobile/checkout") else { return }
+
+    var request        = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    let body: [String: Any] = [
+        "amount":    amount,
+        "currency":  currency,
+        "reference": reference,
+    ]
+    request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+    URLSession.shared.dataTask(with: request) { data, _, error in
+        if let error = error {
+            completion(.failure(error))
+            return
+        }
+        guard let data = data else { return }
+        do {
+            let checkout = try JSONDecoder().decode(CheckoutResponse.self, from: data)
+            completion(.success(checkout))
+        } catch {
+            completion(.failure(error))
+        }
+    }.resume()
+}
+```
+
+### Step 2 — Open Checkout in SFSafariViewController
+
+```swift
+import SafariServices
+import UIKit
+
+class CheckoutViewController: UIViewController {
+
+    var paymentId: String?
+
+    func startPayment(for order: Order) {
+        createCheckout(amount: order.amount, currency: order.currency, reference: order.id) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let checkout):
+                    self.paymentId = checkout.paymentId
+                    self.openCheckoutPage(url: checkout.checkoutUrl)
+                case .failure(let error):
+                    print("Checkout error: \(error)")
+                }
+            }
+        }
+    }
+
+    private func openCheckoutPage(url: String) {
+        guard let checkoutURL = URL(string: url) else { return }
+        let safariVC = SFSafariViewController(url: checkoutURL)
+        safariVC.delegate = self
+        present(safariVC, animated: true)
+    }
+}
+
+extension CheckoutViewController: SFSafariViewControllerDelegate {
+    func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+        // User dismissed — poll your backend for the payment status
+        if let paymentId = paymentId {
+            pollPaymentStatus(paymentId: paymentId)
+        }
+    }
+}
+```
+
+### Step 3 — Poll Your Backend for Status
+
+```swift
+func pollPaymentStatus(paymentId: String, retries: Int = 10) {
+    guard retries > 0 else {
+        print("Polling timed out")
+        return
+    }
+
+    guard let url = URL(string: "https://my-store.com/api/mobile/payment-status/\(paymentId)") else { return }
+
+    URLSession.shared.dataTask(with: url) { data, _, _ in
+        guard let data = data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = json["status"] as? String else { return }
+
+        DispatchQueue.main.async {
+            if status == "completed" {
+                print("Payment confirmed!")
+                // Navigate to success screen
+            } else {
+                // Wait 2 seconds and try again
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    self.pollPaymentStatus(paymentId: paymentId, retries: retries - 1)
+                }
+            }
+        }
+    }.resume()
+}
+```
+
+<Tip>
+For production apps, replace polling with a push notification triggered by your webhook handler. When OwnPay delivers the `payment.completed` event to your server, send an APNs or FCM notification to the user's device for instant confirmation.
+</Tip>
+
+---
+
+## Android Integration (Kotlin)
+
+### Step 1 — Request a Checkout URL from Your Backend
+
+```kotlin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+
+data class CheckoutResponse(
+    val paymentId:   String,
+    val checkoutUrl: String
+)
+
+suspend fun createCheckout(
+    amount: String,
+    currency: String,
+    reference: String
+): CheckoutResponse = withContext(Dispatchers.IO) {
+
+    val url  = URL("https://my-store.com/api/mobile/checkout")
+    val conn = url.openConnection() as HttpURLConnection
+
+    conn.requestMethod = "POST"
+    conn.setRequestProperty("Content-Type", "application/json")
+    conn.doOutput = true
+    conn.connectTimeout = 10_000
+    conn.readTimeout    = 30_000
+
+    val body = JSONObject().apply {
+        put("amount",    amount)
+        put("currency",  currency)
+        put("reference", reference)
+    }
+
+    OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
+
+    val responseText = conn.inputStream.bufferedReader().readText()
+    val json = JSONObject(responseText)
+
+    CheckoutResponse(
+        paymentId   = json.getString("paymentId"),
+        checkoutUrl = json.getString("checkoutUrl")
+    )
+}
+```
+
+### Step 2 — Open Checkout in a Chrome Custom Tab
+
+```kotlin
+import android.content.Context
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
+
+fun openCheckout(context: Context, checkoutUrl: String) {
+    val intent = CustomTabsIntent.Builder()
+        .setShowTitle(true)
+        .build()
+    intent.launchUrl(context, Uri.parse(checkoutUrl))
+}
+```
+
+Add the Custom Tabs dependency to `build.gradle`:
+
+```kotlin
+implementation("androidx.browser:browser:1.8.0")
+```
+
+### Step 3 — Handle Return and Verify Payment
+
+Configure a deep-link `redirect_url` (e.g. `myapp://checkout/return`) so your app can detect when the customer completes payment and the hosted checkout redirects back:
+
+```kotlin
+// AndroidManifest.xml — inside your Activity declaration
+// <intent-filter>
+//   <action android:name="android.intent.action.VIEW" />
+//   <category android:name="android.intent.category.DEFAULT" />
+//   <category android:name="android.intent.category.BROWSABLE" />
+//   <data android:scheme="myapp" android:host="checkout" android:pathPrefix="/return" />
+// </intent-filter>
+
+// In your Activity
+override fun onNewIntent(intent: Intent?) {
+    super.onNewIntent(intent)
+    intent?.data?.let { uri ->
+        if (uri.host == "checkout" && uri.path == "/return") {
+            val paymentId = getStoredPaymentId() // from your session
+            paymentId?.let { verifyPayment(it) }
+        }
+    }
+}
+
+fun verifyPayment(paymentId: String) {
+    // Call your backend, which calls GET /payments/{paymentId} on OwnPay
+    viewModel.verifyPayment(paymentId)
+}
+```
+
+<Warning>
+Never call `GET /payments/{paymentId}` directly from the Android or iOS app — that would expose your API key. Always proxy the verification call through your backend.
+</Warning>
+
+---
+
+## Backend: Payment Status Endpoint
+
+Your backend exposes a mobile-safe status endpoint that queries OwnPay on behalf of the app:
+
+```javascript
+app.get('/api/mobile/payment-status/:paymentId', async (req, res) => {
+  const { paymentId } = req.params;
+
+  try {
+    const payment = await client.getPayment(paymentId);
+
+    // Return only non-sensitive fields to the mobile client
+    res.json({
+      status:    payment.status,
+      reference: payment.reference,
+      amount:    payment.amount,
+      currency:  payment.currency,
+    });
+  } catch (err) {
+    res.status(404).json({ error: 'Payment not found' });
+  }
+});
+```
+
+---
+
+## Webhook Considerations for Mobile
+
+Mobile apps operate in environments where the user can close the app, switch to background, or lose network connectivity at any moment. Webhooks ensure your backend always receives the payment outcome regardless of what happens to the mobile session.
+
+<Accordion title="Recommended webhook-to-mobile notification flow">
+1. OwnPay sends `payment.completed` to your `callback_url`.
+2. Your webhook handler verifies the transaction via `GET /transactions/{trx_id}`.
+3. Your handler updates the order status in your database.
+4. Your handler triggers a **push notification** (APNs for iOS, FCM for Android) to the user's device.
+5. The app receives the push notification and navigates to the order confirmation screen.
+
+This flow works even if the app was backgrounded or terminated before the payment completed.
+</Accordion>
+
+<Note>
+OwnPay retries failed webhook deliveries automatically. You can inspect all attempts — including payloads, response codes, and retry counts — via `GET /webhooks/deliveries`.
+</Note>
+
+---
+
+## Security Checklist
+
+| ✅ | Requirement |
+|----|------------|
+| ✅ | API key is stored only on your server — never in the app binary |
+| ✅ | `checkout_url` is fetched from your backend, not directly from OwnPay |
+| ✅ | Payment verification (`GET /payments/{id}`) is performed server-side |
+| ✅ | Deep-link `redirect_url` scheme is registered in your app manifest |
+| ✅ | Webhook handler re-verifies transactions before fulfilling orders |
+| ✅ | Push notifications are used for reliable payment confirmation |
+| ✅ | All backend-to-OwnPay calls use HTTPS |

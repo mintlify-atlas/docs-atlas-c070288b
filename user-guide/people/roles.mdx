@@ -1,0 +1,144 @@
+---
+title: "Roles & Permissions — RBAC Configuration Guide"
+sidebarTitle: "Roles & Permissions"
+description: "Define custom RBAC roles, assign granular permission scopes to staff, and control access across gateways, payments, people, and system modules."
+---
+
+OwnPay uses a Role-Based Access Control (RBAC) system to govern what each staff member can see and do within the admin dashboard. Super-administrators define roles — named permission bundles such as "Finance Auditor" or "Support Agent" — and then assign those roles to staff members. Every request to a protected route is validated against the user's combined permissions, and access is denied with a **403 Forbidden** response if the required permission is absent. This architecture ensures that sensitive operations like gateway management and API key access are always restricted to explicitly authorised personnel.
+
+## Navigating to Roles & Permissions
+
+In the OwnPay admin dashboard, expand the **PEOPLE** section in the left sidebar and click **Roles & Permissions**. The page opens showing the active roles list and the full permissions grid.
+
+## Roles List
+
+The roles table lists every role defined on the platform:
+
+| Column | Description |
+|---|---|
+| **Role** | Human-readable name of the role (e.g. `Owner`, `Finance Auditor`). |
+| **Slug** | System identifier used in permission checks (e.g. `owner`, `finance-auditor`). |
+| **Description** | Brief explanation of what staff in this role do. |
+| **Permissions** | Count of permission nodes currently active for this role. |
+| **Type** | `System` (built-in, not deletable) or a user-created brand role. |
+| **Actions** | **Edit** opens the role form to modify name, description, and permission assignments. |
+
+## Available Permission Scopes
+
+Permissions are grouped by functional module. Each permission controls access to one specific area of the admin panel.
+
+### Full Permissions Reference
+
+| Module | Permission | Description |
+|---|---|---|
+| **Developers** | `Manage API Keys` | Create, rotate, and delete API access keys. |
+| **Developers** | `View API Keys` | Read-only access to existing API key metadata (not the raw secret). |
+| **Gateways** | `Manage Gateways` | Install, create, edit, and delete payment gateways. |
+| **Gateways** | `View Gateways` | Read-only access to the gateway list and configuration. |
+| **Mobile** | `Manage Devices` | Pair, revoke, and delete Android companion devices. |
+| **Mobile** | `View Devices` | View paired device status and connection history. |
+| **Mobile** | `Manage SMS` | Create, edit, and delete SMS parsing templates. |
+| **Mobile** | `View SMS` | View SMS Centre templates and SMS data logs. |
+| **Payments** | `Manage Invoices` | Create, send, edit, and cancel customer invoices. |
+| **Payments** | `View Invoices` | Read-only access to the invoices list and individual records. |
+| **Payments** | `Manage Payment Links` | Create and delete payment link pages. |
+| **Payments** | `View Payment Links` | View existing payment link configurations. |
+| **Payments** | `Manage Transactions` | Approve, refund, and update transaction states. |
+| **Payments** | `View Transactions` | Read-only access to transaction records and history. |
+| **People** | `Manage Brands` | Create, edit, and delete brand storefronts. |
+| **People** | `View Brands` | Read-only access to the brands list. |
+| **People** | `Manage Customers` | Create, edit, and delete customer profiles. Full PII access. |
+| **People** | `View Customers` | View customer list and profiles (PII may be masked by role configuration). |
+| **People** | `Manage Staff` | Invite, edit, suspend, and delete staff accounts. |
+| **People** | `View Staff` | Read-only access to the staff directory. |
+| **System** | `Admin Access` | Grants access to the admin dashboard root. Required for all staff. |
+| **System** | `Manage Domains` | Add and remove custom domain mappings for brands. |
+| **System** | `View Domains` | View domain records and DNS verification status. |
+| **System** | `Manage Plugins` | Install, activate, and deactivate platform plugins. |
+| **System** | `View Plugins` | View installed plugin list. |
+| **System** | `Manage Settings` | Edit platform-wide and brand-level configuration settings. |
+| **System** | `View Settings` | Read-only access to settings pages. |
+| **System** | `View Audit Log` | Access the activity audit trail. |
+| **System** | `Balance Verification` | Run financial reconciliation checks. |
+| **System** | `View Reports` | Access the Reports page and export financial data. |
+| **System** | `System Update` | Trigger platform version updates. |
+
+## Creating a Custom Role
+
+<Steps>
+  <Step title="Click + Create Role">
+    On the Roles & Permissions page, click the **+ Create Role** button to open the role creation form.
+  </Step>
+  <Step title="Enter a role name and description">
+    Type a clear **Role Name** (e.g. `Finance Auditor`) and a brief **Description** explaining the role's scope (e.g. "Read-only access to financial reports, transactions, and audit logs"). A good description helps other administrators understand the role's intent at a glance.
+  </Step>
+  <Step title="Select the required permissions">
+    In the **Assign Permissions** section, check each permission node this role should include. For a Finance Auditor role, you might select `View Transactions`, `View Invoices`, `View Reports`, `View Audit Log`, and `Balance Verification`.
+  </Step>
+  <Step title="Save the role">
+    Click **Create Role**. The new role appears in the Active Roles list and is immediately available for assignment when creating or editing staff members.
+  </Step>
+</Steps>
+
+## Modifying an Existing Role
+
+<Steps>
+  <Step title="Locate the role in the Active Roles table">
+    Find the role you want to update and click **Edit** under the **Actions** column.
+  </Step>
+  <Step title="Update the role name or description">
+    Modify the **Role Name** or **Description** fields if needed.
+  </Step>
+  <Step title="Update permission checkboxes">
+    Check or uncheck permission nodes to adjust what this role grants. Changes apply to all staff members currently assigned this role.
+  </Step>
+  <Step title="Save changes">
+    Click **Save Permissions**. The updated permission set is applied immediately — there is no need to log staff out or restart the server.
+  </Step>
+</Steps>
+
+## Assigning Roles to Staff
+
+Roles are assigned when creating or editing a staff member:
+
+1. Navigate to **People → Staff** and open the target staff member's **Edit** form.
+2. Open the **Role** dropdown and select the appropriate role.
+3. Optionally, check or uncheck individual permissions in the **Permissions** grid to override the role's defaults for this specific user.
+4. Click **Save**.
+
+## How Role Inheritance Works
+
+Permission resolution follows a two-level inheritance model:
+
+<Steps>
+  <Step title="Role-level permissions are loaded">
+    When a staff member logs in, the system retrieves all permissions attached to their assigned role. This forms the baseline permission set.
+  </Step>
+  <Step title="User-level overrides are applied">
+    Any individual permissions explicitly checked on the staff member's own profile are merged on top of the role permissions. This means individual overrides can grant *additional* access beyond the role, or — if a permission is explicitly unchecked — restrict access that the role would otherwise provide.
+  </Step>
+  <Step title="Navigation is filtered dynamically">
+    The admin sidebar and page access are filtered at render time based on the final merged permission set. Attempting to load a restricted page URL directly returns a 403 Forbidden response.
+  </Step>
+</Steps>
+
+## Role Design Recommendations
+
+<CardGroup cols={2}>
+  <Card title="Support Agent" icon="headset" href="/user-guide/people/roles#creating-a-custom-role">
+    Permissions: `View Transactions`, `View Customers`, `View Invoices`. No write access — agents can look up payments and customer details to answer queries without being able to alter records.
+  </Card>
+  <Card title="Finance Auditor" icon="chart-bar" href="/user-guide/people/roles#creating-a-custom-role">
+    Permissions: `View Transactions`, `View Reports`, `View Audit Log`, `Balance Verification`. Gives full financial visibility for reconciliation without any write permissions.
+  </Card>
+  <Card title="Gateway Manager" icon="plug" href="/user-guide/people/roles#creating-a-custom-role">
+    Permissions: `Manage Gateways`, `Manage Devices`, `Manage SMS`. Scoped to payment infrastructure configuration, isolated from customer data and financial reports.
+  </Card>
+  <Card title="Brand Administrator" icon="store" href="/user-guide/people/roles#creating-a-custom-role">
+    Permissions: `Manage Brands`, `Manage Staff`, `Manage Settings`, `View Reports`. Full control over a brand's configuration and team, without access to developer credentials or system updates.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Only super-administrators should have access to the Roles & Permissions panel. Never assign `Manage Staff` to non-owner accounts — a user with that permission could modify their own permissions, assign themselves elevated roles, or lock out other administrators. This permission should be treated as equivalent to full system access.
+</Warning>

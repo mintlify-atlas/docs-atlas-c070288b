@@ -1,0 +1,132 @@
+---
+title: "Configuring Payment Gateways in OwnPay"
+sidebarTitle: "Payment Gateways"
+description: "Set up API-based and manual payment gateways, configure test mode, manage gateway status, and control checkout display order per brand."
+---
+
+Payment gateways are the engine behind every checkout in OwnPay. The platform supports two distinct gateway categories: **automated plugin gateways** that connect to third-party processors via API (such as Stripe or PayPal), and **manual gateways** that handle local wallet transfers (such as bKash Personal or Nagad Personal) and rely on human or SMS-based verification. Administrators configure all gateways from a single panel, controlling which are available per brand, in what order they appear at checkout, and whether they operate in live or test mode.
+
+## Gateway Types
+
+OwnPay organises gateways into two fundamental types, each suited to different payment scenarios.
+
+<CardGroup cols={2}>
+  <Card title="Automated Plugin Gateways" icon="plug" href="/user-guide/gateways/gateways#installing-an-api-gateway">
+    Structured integrations with processors like Stripe, PayPal, and bKash API. Credentials are entered once and payments are confirmed automatically via API callbacks.
+  </Card>
+  <Card title="Manual Gateways" icon="mobile" href="/user-guide/gateways/gateways#creating-a-manual-gateway">
+    Custom local wallet gateways (e.g. Nagad Personal, Rocket) where customers transfer funds and submit a transaction ID. Optionally confirmed via SMS auto-verification.
+  </Card>
+</CardGroup>
+
+## Navigating to Payment Gateways
+
+In the OwnPay admin dashboard, expand the **GATEWAYS** section in the left sidebar and click **Payment Gateways**. The list view opens showing all configured and available gateways across three tabs: **All Gateways**, **API Gateways**, and **Manual Gateways**.
+
+## Gateway List View
+
+The list view presents every gateway with its current status at a glance. The status column uses colour-coded indicators — **Active** (green) signals that the gateway is live and accepting payments, **Inactive** (grey) means the gateway is disabled and hidden from checkout, and **Test Mode** (amber) flags that the gateway is running with sandbox credentials and will not process real money.
+
+Each row also shows the gateway name, slug, type badge, and an **Edit** action that opens the full configuration form.
+
+## Installing an API Gateway
+
+<Steps>
+  <Step title="Open the API Gateways tab">
+    On the Payment Gateways page, click the **API Gateways** tab to see the list of all built-in processor integrations.
+  </Step>
+  <Step title="Click Install on the target processor">
+    Locate the gateway you want to activate (for example, **Stripe** or **PayPal Checkout**) and click its **Install** button.
+  </Step>
+  <Step title="Enter API credentials">
+    On the gateway configuration page, paste your API keys and any required credentials provided by the processor.
+  </Step>
+  <Step title="Choose live or test mode">
+    Toggle **Test Mode** to **Off** for live transactions. Leave it **On** if you are still integrating and want to use the processor's sandbox environment.
+  </Step>
+  <Step title="Set status to Active and save">
+    Switch the gateway status to **Active** and click **Save**. The gateway is now available for assignment to your brands.
+  </Step>
+</Steps>
+
+<Warning>
+  Never enable **Test Mode** on a gateway that is assigned to a live customer-facing brand. Test mode uses sandbox credentials that accept any card number and will not capture real funds — customers will believe their payment succeeded while your ledger records a worthless test transaction.
+</Warning>
+
+## Creating a Manual Gateway
+
+<Steps>
+  <Step title="Open the Add Manual Gateway form">
+    Click the **Add Manual Gateway** button in the page header to open the creation form.
+  </Step>
+  <Step title="Set the gateway name and slug">
+    Enter a customer-visible **Gateway Name** (e.g. `Nagad Personal`) and a URL-safe **Slug** (e.g. `nagad-personal`). The slug must be lowercase with hyphens only — no spaces or special characters.
+  </Step>
+  <Step title="Write payment instructions">
+    In the **Payment Instructions** field, type the steps customers should follow to send money (e.g. "Send to 01800-000000 via Nagad, then submit your Transaction ID below").
+  </Step>
+  <Step title="Upload branding assets">
+    Upload a **Logo** (the wallet provider icon shown at checkout) and optionally a **QR Code** that customers can scan. Set **Primary** and **Secondary Colors** to match the wallet brand.
+  </Step>
+  <Step title="Configure transaction limits">
+    Set **Min Amount** and **Max Amount** to restrict the accepted payment range. Leave both at `0` for no limits.
+  </Step>
+  <Step title="Enable SMS verification (optional)">
+    Check **Enable SMS Verification** if you want incoming wallet SMS messages forwarded from a paired Android device to auto-confirm matching transactions.
+  </Step>
+  <Step title="Add custom input fields">
+    Click **+ Add Field** for each piece of information customers must provide at checkout (e.g. Transaction ID, Sender Phone Number).
+  </Step>
+  <Step title="Save the gateway">
+    Click **Create Gateway**. The new manual gateway appears immediately in the **Manual Gateways** tab.
+  </Step>
+</Steps>
+
+## Gateway Fields Reference
+
+| Field | Required | Description |
+|---|---|---|
+| **Gateway Name** | Yes | Display name shown to customers at checkout (e.g. `Nagad Personal`). |
+| **Slug** | Yes | Lowercase alphanumeric API identifier with hyphens. No spaces allowed. |
+| **Payment Instructions** | No | Free-text guidance shown to the customer during checkout. |
+| **Logo** | No | Gateway icon; prefix stored asset paths with `/storage/`. |
+| **QR Code** | No | Scannable payment code; can be omitted for text-only instructions. |
+| **Primary / Secondary Color** | No | Custom brand colours for the checkout widget. Defaults to `#e2136e`. |
+| **Min Amount** | No | Lowest accepted payment value. Set to `0` for unlimited. |
+| **Max Amount** | No | Highest accepted payment value. Set to `0` for unlimited. |
+| **Enable SMS Verification** | No | Routes transactions for automatic SMS-based approval via a paired device. |
+
+## Enabling and Disabling Gateways Per Brand
+
+Each brand can activate a subset of the globally configured gateways. Navigate to **People → Brands**, open the target brand's settings, and use the **Gateways** assignment panel to toggle individual gateways on or off for that brand. A gateway must be globally **Active** before it can be assigned to a brand.
+
+## Gateway Ordering and Checkout Priority
+
+The order in which gateways appear on the customer checkout page is controlled by their **priority** value. Lower numbers are displayed first. To reorder, edit each gateway and adjust its priority setting. This allows you to promote preferred payment methods (e.g. placing a high-volume mobile wallet above a credit card processor) without removing any options.
+
+## SMS Auto-Verification Workflow
+
+When SMS Verification is enabled on a manual gateway, the following chain runs automatically:
+
+1. A customer submits their Transaction ID at checkout.
+2. A paired Android device forwards the wallet's SMS notification to the OwnPay server.
+3. The SMS Centre parsing template extracts the Transaction ID and amount from the message body.
+4. OwnPay matches the extracted ID against pending transactions and, if a match is found, marks the payment as completed.
+
+<Tip>
+  If SMS auto-verification misses a payment, you can always approve it manually from the Transactions panel. Add a "Transaction ID" custom input field to every manual gateway so you always have a fallback reference for manual confirmation.
+</Tip>
+
+## Troubleshooting
+
+<Accordion title="Gateway logo is broken on the checkout screen">
+  The most common cause is a missing `/storage/` prefix in the logo path. Edit the gateway, verify the stored file path resolves correctly, and prefix it with `/storage/` if it is missing.
+</Accordion>
+
+<Accordion title="Customer transactions are not auto-approving">
+  Check two things: first, confirm the OwnPay Companion App on the paired Android device is online and not paused by battery optimisation. Second, open **Mobile & SMS → SMS Centre** and verify the regex template for this gateway correctly captures the Transaction ID from a real sample SMS.
+</Accordion>
+
+<Accordion title="Slug validation error on save">
+  Slugs may only contain lowercase letters (a–z), digits (0–9), and hyphens (-). Remove any spaces, underscores, or uppercase letters before saving.
+</Accordion>

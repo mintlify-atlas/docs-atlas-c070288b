@@ -1,0 +1,152 @@
+---
+title: "Landing Page: Configure the Public-Facing Home Screen"
+sidebarTitle: "Landing Page"
+description: "Set hero text, CTA buttons, feature cards, and the secure admin login URL slug for your OwnPay platform's public-facing landing page."
+---
+
+The Landing Page settings tab controls everything visible when someone visits your platform's root URL (`/`). It manages the marketing content customers and prospective users see before they interact with any checkout flow — including the hero headline, call-to-action buttons, and feature showcase cards. It also houses a critical security control: the **Admin Login URL Slug**, which lets you move the admin portal login path away from the default `/login` URL to prevent automated bots from discovering it.
+
+<Warning>
+  The Admin Login URL Slug must use only lowercase letters, numbers, and hyphens. Spaces, uppercase letters, and special characters such as `@` or `+` are blocked by route parameter constraints and will cause routing errors. After changing the slug, bookmark the new URL immediately — if you lose it, you must query the `op_system_settings` database table directly to retrieve it.
+</Warning>
+
+## Accessing Landing Page Settings
+
+<Steps>
+  <Step title="Log in as Super-Administrator">
+    Sign in to the OwnPay admin dashboard with your super-administrator credentials.
+  </Step>
+  <Step title="Open Settings">
+    In the left sidebar under the **SYSTEM** section, click **Settings**.
+  </Step>
+  <Step title="Select the Landing Page Tab">
+    Click the **Landing Page** tab in the Settings header navigation.
+  </Step>
+</Steps>
+
+---
+
+## General Page Settings
+
+<CardGroup cols={2}>
+  <Card title="Enable Landing Page" icon="toggle-on">
+    When enabled, visiting the root URL `/` displays the public marketing landing page. When disabled, `/` redirects visitors directly to the admin login view instead.
+  </Card>
+  <Card title="Admin Login URL Slug" icon="shield-halved">
+    Changes the URL path used to access the admin portal. The default is `login` (e.g. `https://ownpay.test/login`). Replace it with a hard-to-guess slug to mask the admin interface from scanners and bots.
+  </Card>
+</CardGroup>
+
+---
+
+## Marketing Content
+
+The marketing content section controls the editorial copy displayed on the public landing page.
+
+### Field Reference
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| **Hero Title** | Text | `The Payment Gateway...` | Large banner headline at the top of the landing page. |
+| **Hero Subtitle** | Text | `Self-hosted, multi-brand...` | Explanatory tagline displayed under the hero title. |
+| **CTA Button Text** | Text | `Get Started` | Label for the primary call-to-action button. |
+| **CTA Button URL** | Text | `https://ownpay.org` | Redirect destination for the CTA button click. |
+| **Show Features Section** | Toggle | Enabled | Displays or hides the modular feature cards grid. |
+| **Show FAQ Section** | Toggle | Enabled | Displays or hides the FAQ accordion section. |
+
+---
+
+## Feature Cards Builder
+
+Feature cards are modular content blocks displayed in a grid on the landing page, each highlighting a specific capability of your platform.
+
+### Adding a Feature Card
+
+<Steps>
+  <Step title="Click Add Feature Card">
+    Under the **Feature Cards** section, click the **+ Add Feature Card** button to append a new card form.
+  </Step>
+  <Step title="Fill in the Card Details">
+    Enter a **Title** (e.g. `SMS Auto-Verification`), a **Description** summarizing the feature, and select or enter an **Icon** class or label.
+  </Step>
+  <Step title="Save Settings">
+    Click **Save Settings** in the page footer to publish the updated feature cards grid.
+  </Step>
+</Steps>
+
+<Note>
+  You can add as many feature cards as needed. Cards are rendered in the order they are added. To reorder them, remove and re-add cards in the desired sequence, or adjust their order through the database settings if your instance supports drag-and-drop reordering.
+</Note>
+
+---
+
+## Securing the Admin Login URL
+
+Masking the admin login path is an important hardening step for all production deployments. Once changed, the default `/login` route returns a **404 Not Found** page, making it significantly harder for automated scanners to locate your admin portal.
+
+<Steps>
+  <Step title="Navigate to Landing Page Settings">
+    Go to **SYSTEM → Settings → Landing Page**.
+  </Step>
+  <Step title="Update the Login URL Slug">
+    In the **Admin Login URL Slug** input, replace `login` with a unique, hard-to-guess value (e.g. `op-portal-secure-2026`). Use only lowercase letters, numbers, and hyphens.
+  </Step>
+  <Step title="Save Settings">
+    Click **Save Settings**.
+  </Step>
+  <Step title="Bookmark the New URL Immediately">
+    Open a new browser tab and navigate to `https://yourdomain.com/{your-new-slug}` to confirm the login page loads correctly. Bookmark this URL in your browser and store it in your team's password manager before closing the tab.
+  </Step>
+</Steps>
+
+<Warning>
+  The default `/login` path will return a **404 Not Found** after changing the slug. If you or a team member attempts to log in using the old URL, access will be denied. There is no UI recovery path — you must look up the slug in the `op_system_settings` table if it is lost.
+</Warning>
+
+---
+
+## Landing Page vs. Checkout Pages
+
+<Accordion title="What is the landing page?">
+  The landing page at `/` is a static marketing page managed by the admin. It is intended for visitors who arrive at your platform's root URL and serves as a professional introduction to your payment gateway service. It is not part of the checkout flow.
+</Accordion>
+
+<Accordion title="What are checkout pages?">
+  Checkout pages at `/checkout/{token}` and payment link pages at `/pay/{slug}` are dynamically generated per-transaction or per-payment-link. They are white-labeled under the active brand's domain, logo, and color scheme — not the global landing page content.
+</Accordion>
+
+<Accordion title="Can I disable the landing page?">
+  Yes. Toggle **Enable Landing Page** to off and save. Visitors to your root URL will be redirected to the admin login screen instead. This is appropriate for deployments where the root URL should remain private.
+</Accordion>
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Change the Login Slug in Production" icon="shield">
+    Always update the Admin Login URL Slug before going live. The default `/login` path is well-known and frequently targeted by automated credential-stuffing bots.
+  </Card>
+  <Card title="Keep the Landing Page Enabled for Public Links" icon="link">
+    If you share public payment links, enable the landing page to give your platform a professional first impression. A blank or missing landing page can undermine customer trust.
+  </Card>
+</CardGroup>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Branding Settings" icon="palette" href="/user-guide/appearance/branding-settings">
+    Configure SEO titles, logos, and favicon assets for the public landing page.
+  </Card>
+  <Card title="System Settings" icon="gear" href="/user-guide/system/settings">
+    Set the base URL, timezone, and maintenance mode controls.
+  </Card>
+  <Card title="Custom Domains" icon="globe" href="/user-guide/system/domains">
+    Map custom hostnames to brands for white-labeled checkout URLs.
+  </Card>
+  <Card title="Public Checkout" icon="cart-shopping" href="/user-guide/public/checkout">
+    Learn how customers experience the checkout flow after leaving the landing page.
+  </Card>
+</CardGroup>

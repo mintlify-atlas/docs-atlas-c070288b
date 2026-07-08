@@ -1,0 +1,179 @@
+---
+title: "OwnPay Frequently Asked Questions"
+sidebarTitle: "FAQ"
+description: "Answers to the most common questions about OwnPay — licensing, multi-brand support, gateway plugins, PCI compliance, cryptocurrency, database support, and getting help."
+---
+
+These are the questions that come up most often from teams evaluating OwnPay, self-hosting it for the first time, or integrating it into an existing stack. If your question isn't here, open a [GitHub Discussion](https://github.com/own-pay/OwnPay/discussions) or check the [Troubleshooting guide](/advanced-topics/troubleshooting).
+
+## General
+
+<Accordion title="Is OwnPay free to use?">
+  Yes. OwnPay is free to download and self-host. The software is released under the **[GNU AGPL-3.0 license](https://github.com/own-pay/OwnPay/blob/main/LICENSE)**, which means you can use, modify, and distribute it freely as long as you comply with the license terms.
+
+  What you pay for:
+  - **Hosting** — your server costs (shared hosting or VPS)
+  - **Gateway fees** — each payment gateway charges its own transaction fees (Stripe, PayPal, etc.)
+  - **Enterprise support** — optional paid support plans at [support.ownpay.org](https://support.ownpay.org)
+
+  There are no per-transaction fees from OwnPay itself, no monthly SaaS subscription, and no lock-in.
+</Accordion>
+
+<Accordion title="Is there a hosted or SaaS version of OwnPay?">
+  No. OwnPay is **self-hosted only**. You install it on your own server (shared hosting, VPS, or a container). There is no OwnPay-managed cloud version, and there is no public sign-up.
+
+  This is a deliberate design decision — the sovereign owner model means you own every byte of data and every piece of the infrastructure. The benefits:
+  - Full control over where data is stored
+  - No recurring SaaS fees
+  - Data never leaves your server
+  - PCI and GDPR compliance stays in your hands
+
+  See [Local Setup](/resources/local-setup) to get running in about two minutes.
+</Accordion>
+
+<Accordion title="Can I use OwnPay for multiple businesses?">
+  Yes. OwnPay's **multi-brand architecture** is specifically designed for this. A single installation supports unlimited brands, each with complete data isolation:
+
+  - Each brand has its own custom domain, logo, color scheme, and checkout UI
+  - Customers, transactions, invoices, and ledger entries are scoped per brand — no cross-brand data bleed
+  - Each brand can have its own set of enabled gateways with separate credentials
+  - Staff members can be assigned to specific brands with role-based access control
+
+  All brands are administered from a single dashboard by the sovereign owner. This is how agencies, holding companies, and platform operators run multiple distinct payment experiences on one server.
+</Accordion>
+
+## Payment Gateways
+
+<Accordion title="What payment gateways are supported?">
+  OwnPay ships with **123 built-in gateway adapters** covering:
+  - **Global cards:** Stripe, Adyen, Braintree, Authorize.net, Square, Worldpay, Cybersource, Checkout.com, and more
+  - **Digital wallets:** Apple Pay, Google Pay, Alipay, PayPal
+  - **Mobile financial services:** bKash, Nagad, M-Pesa, MTN MoMo, GCash, Dana, GrabPay, PhonePe
+  - **Buy-now-pay-later:** Klarna
+  - **Cryptocurrency:** Coinbase Commerce, BTCPay, Bitpay
+  - **Regional platforms:** Razorpay, Flutterwave, Paystack, Midtrans, Xendit, Mercado Pago, and dozens more
+
+  Because gateways are **plugin-based**, any gateway can be added by implementing `GatewayAdapterInterface`. See the [Contributing guide](/resources/contributing) for instructions on building and submitting a new gateway.
+</Accordion>
+
+<Accordion title="Can I accept cryptocurrency payments?">
+  Yes, via gateway plugins. OwnPay ships with adapters for **Coinbase Commerce**, **BTCPay Server**, and **Bitpay** out of the box. Any other crypto processor can be added as a custom gateway plugin by implementing `GatewayAdapterInterface`.
+
+  OwnPay itself does not hold, custody, or process crypto — it delegates entirely to the gateway adapter, the same way it delegates card processing to Stripe.
+</Accordion>
+
+<Accordion title="Can I build my own custom payment gateway?">
+  Yes. Create a directory under `modules/gateways/{slug}/` with a `manifest.json` and a class implementing `OwnPay\Gateway\GatewayAdapterInterface`. The `GatewayDefaults` trait provides no-op defaults so you only implement the methods your gateway supports.
+
+  The gateway plugin system is sandboxed — the source is scanned for dangerous calls (`exec`, `eval`, `shell_exec`, raw PDO) before loading. See the [Contributing guide](/resources/contributing#contributing-a-payment-gateway) for a full walkthrough.
+</Accordion>
+
+## Compliance and Security
+
+<Accordion title="Does OwnPay handle PCI compliance?">
+  OwnPay is designed to minimize PCI scope, but **you own the infrastructure** and therefore own compliance. Key facts:
+
+  - OwnPay **never stores raw card numbers, expiration dates, or CVV codes** — card data is handled entirely by the payment gateway (Stripe, Adyen, etc.)
+  - Customer PII (name, email, phone) is encrypted at rest using **AES-256-GCM**
+  - All monetary values use bcmath string arithmetic — never floats
+  - HTTPS is required; OwnPay enforces HSTS headers
+
+  Your compliance obligations:
+  - Keep your server and OwnPay installation up to date
+  - Use HTTPS with a valid TLS certificate
+  - Restrict admin access with strong passwords and 2FA
+  - Monitor and retain audit logs
+  - Follow your payment gateway provider's PCI guidance
+
+  Since you self-host, you control the server environment — OwnPay gives you the tools, but PCI assessment is your responsibility.
+</Accordion>
+
+<Accordion title="How is customer data protected?">
+  Customer PII is encrypted before being stored in the database:
+
+  - **AES-256-GCM encryption** — name, email, and phone are encrypted at rest
+  - **Hash-based lookup** — email and phone are also stored as hashes so lookups never require decryption
+  - **Gateway credentials** — API keys and secrets for each gateway are AES-256-GCM encrypted at rest
+  - **Password hashing** — staff passwords use Argon2id
+
+  The `ENCRYPTION_KEY` in your `.env` is generated during installation and must never be committed to version control or rotated without re-encrypting all stored data.
+</Accordion>
+
+<Accordion title="Does OwnPay comply with AGPL-3.0 license requirements?">
+  OwnPay is licensed under GNU AGPL-3.0. Key obligations:
+
+  - You may use OwnPay for any purpose, including commercial, at no cost
+  - If you modify OwnPay and run it as a network service (SaaS), you must make your modifications available under the same license
+  - If you distribute OwnPay (e.g., as part of a product), your distribution must include the AGPL-3.0 license
+  - No separate CLA is required for contributions — DCO sign-off is sufficient
+
+  For most self-hosters running OwnPay privately for their own business, the AGPL obligations are straightforward. Contact [ping@ownpay.org](mailto:ping@ownpay.org) if you have licensing questions.
+</Accordion>
+
+## Technical Setup
+
+<Accordion title="What databases are supported?">
+  OwnPay supports **MySQL 8.0+** and **MariaDB 10.4+**. These are the only supported database engines.
+
+  Key technical details:
+  - All queries use PDO prepared statements with parameter binding
+  - The schema uses `utf8mb4` character set with `utf8mb4_unicode_ci` collation
+  - Financial data integrity is enforced with `STRICT_TRANS_TABLES` SQL mode
+  - Composite indexes on `merchant_id` columns ensure per-brand query performance
+  - MySQL Stored Generated Columns are used for fast JSON field lookups (requires MySQL 5.7+ / MariaDB 10.2+)
+
+  SQLite, PostgreSQL, and other databases are not supported.
+</Accordion>
+
+<Accordion title="What are the minimum server requirements?">
+  | Component | Minimum | Recommended |
+  |---|---|---|
+  | PHP | 8.3+ | 8.3+ |
+  | RAM | 1 GB | 2 GB+ |
+  | Database | MySQL 8.0 / MariaDB 10.4 | MySQL 8.0 / MariaDB 10.11 |
+  | Disk | 5 GB | 20 GB+ |
+  | Network | Public IP with HTTPS | Dedicated IP, valid TLS cert |
+
+  Required PHP extensions: `bcmath`, `json`, `mbstring`, `openssl`, `pdo`, `pdo_mysql`, `curl`, `zip`, `fileinfo`, `intl`.
+
+  OwnPay works on shared hosting as long as PHP 8.3+ is available. The `vendor/` directory is bundled in release archives, so Composer is not required on the production server.
+</Accordion>
+
+<Accordion title="Can I install OwnPay on shared hosting?">
+  Yes, if your host provides:
+  - PHP 8.3+ with the required extensions
+  - MySQL or MariaDB
+  - A writable `storage/` directory
+
+  cPanel-based hosts (SiteGround, HostGator, A2 Hosting) generally work well. The web-based installer at `/install` handles schema import and configuration without SSH or Composer.
+
+  For production workloads processing significant transaction volumes, a VPS with Redis enabled (`CACHE_DRIVER=redis`, `QUEUE_DRIVER=redis`) is strongly recommended.
+</Accordion>
+
+## Operations
+
+<Accordion title="How do I get support?">
+  **Free resources:**
+  - [Documentation](https://docs.ownpay.org) — comprehensive guides and API reference
+  - [Troubleshooting guide](/advanced-topics/troubleshooting) — common issues with step-by-step fixes
+  - [GitHub Issues](https://github.com/own-pay/OwnPay/issues) — bug reports (include your OwnPay version, PHP version, and relevant log excerpts)
+  - [GitHub Discussions](https://github.com/own-pay/OwnPay/discussions) — questions, feature ideas, and community help
+
+  **Paid support:**
+  - [Enterprise Support](https://support.ownpay.org) — phone and email support, priority response, setup assistance
+
+  When reporting a bug, always include: exact error message, OwnPay version (`php public/index.php --version`), PHP version, and the relevant log from `storage/logs/php-errors.log`.
+</Accordion>
+
+<Accordion title="How do I report a security vulnerability?">
+  Email [security@ownpay.org](mailto:security@ownpay.org) with a description of the vulnerability, steps to reproduce, and your assessment of the impact.
+
+  **Do not** post security issues publicly on GitHub — report privately so the issue can be fixed before disclosure. OwnPay follows a 90-day responsible disclosure window. Test only against your own installation.
+</Accordion>
+
+<Accordion title="How often should I update OwnPay?">
+  - **Security updates** — apply immediately. OwnPay handles financial data and any security patch should be treated as urgent.
+  - **Feature updates** — apply when convenient, typically every 1–2 months.
+
+  OwnPay's self-update engine (`src/Update/UpdateService.php`) performs atomic, rollback-safe updates with SHA-256 + RSA signature verification. Enable auto-update via `SystemUpdateJob` in the cron, or trigger updates manually from **Admin → Settings → Updates**. Always ensure backups are working before applying an update.
+</Accordion>

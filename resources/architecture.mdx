@@ -1,0 +1,187 @@
+---
+title: "OwnPay System Architecture: A Developer Overview"
+sidebarTitle: "Architecture"
+description: "Explore OwnPay's sovereign single-owner design, multi-brand isolation, double-entry ledger, plugin system layers, API surface, and mobile SMS subsystem."
+---
+
+OwnPay is a self-hosted, single-owner, multi-brand payment orchestrator written in PHP 8.3+. One administrator controls the entire installation and creates multiple isolated **brands** (stores) — each with its own domain, gateways, customers, and ledgers — all secured inside a single MySQL database using a `merchant_id` column on every scoped table. There is no public sign-up and no multi-tenant SaaS runtime: the sovereign owner model means you own every byte of data and every line of execution.
+
+## Tech Stack at a Glance
+
+| Layer | Choice |
+|---|---|
+| Language | PHP 8.3+ (`declare(strict_types=1)` everywhere) |
+| Persistence | MySQL 8 / MariaDB 10.4+ (PDO, prepared statements only) |
+| Templating | Twig 3+ |
+| Front controller | Single entry point `public/index.php` |
+| DI container | Custom PSR-11 (`src/Container.php`) with reflection autowiring |
+| Auth (mobile/API) | `firebase/php-jwt` |
+| Frontend | Server-rendered Twig + vanilla CSS/JS |
+| Static analysis | PHPStan level 9 |
+| Tests | PHPUnit |
+
+<Note>
+  There is **no framework runtime** (no Laravel or Symfony). The kernel, router, container, and middleware pipeline are small, readable, first-party components under `src/`.
+</Note>
+
+## Request Lifecycle
+
+Every HTTP request flows through a single front controller into the `Kernel`:
+
+<Steps>
+  <Step title="Entry Point">
+    `public/index.php` receives all requests and hands off to `Kernel::handle()`.
+  </Step>
+  <Step title="Boot Sequence">
+    Load `.env`, build the DI container, set the timezone, boot plugins (before middleware so plugins can inject their own), load the middleware pipeline, fire `system.boot`, and register routes.
+  </Step>
+  <Step title="Routing">
+    `Router::match()` resolves the path to a controller and its middleware group. Unmatched paths return a 404; rejected middleware returns a redirect, 401, or 403.
+  </Step>
+  <Step title="Controller Dispatch">
+    The global and group middleware pipeline runs in order, then the controller is dispatched and its `Response` is sent.
+  </Step>
+  <Step title="Shutdown">
+    The `system.shutdown` hook fires after the response is sent, enabling post-response cleanup.
+  </Step>
+</Steps>
+
+<Info>
+  If the application is not yet installed, all requests redirect to `/install`. Error pages are rendered by a dependency-free `ErrorPageRenderer` so they work even when Twig or the database is unavailable.
+</Info>
+
+## Directory Map
+
+```text
+ownpay/
+├── public/            # Web root — index.php + static assets
+├── src/               # All application code (PSR-4: OwnPay\ → src/)
+│   ├── Kernel.php         # Boot + dispatch orchestrator
+│   ├── Container.php      # PSR-11 DI container
+│   ├── Http/              # Request, Response, Router
+│   ├── Middleware/        # Auth, CSRF, CORS, rate limit, domain, security headers
+│   ├── Controller/        # Admin/, Api/, Checkout/, Page/, Webhook/, Install/
+│   ├── Repository/        # Data access; BaseRepository + TenantScope trait
+│   ├── Service/           # Business logic (Payment, Brand, Domain, Device, System…)
+│   ├── Gateway/           # GatewayAdapterInterface, bridge, webhook processor
+│   ├── Plugin/            # Plugin loader, registry, manifest, sandbox scanner
+│   ├── Event/             # EventManager (WordPress-style actions + filters)
+│   ├── Security/          # SecurityHelpers, UrlValidator (SSRF guards)
+│   ├── View/              # Twig factory, extensions, ErrorPageRenderer
+│   ├── Cron/              # Scheduled jobs (queue worker, webhook retry, currency…)
+│   └── Update/            # Self-update engine (download, verify, extract, migrate)
+├── config/            # app.php, services.php, middleware.php, hooks.php, routes/
+├── modules/           # gateways/, addons/, themes/ (one dir each, manifest.json)
+├── templates/         # Twig templates (admin, checkout, error, emails…)
+├── database/          # schema.sql + migrations/
+└── vendor/            # Composer dependencies
+```
+
+## Core Subsystems
+
+<CardGroup cols={2}>
+  <Card title="Dependency Injection" icon="boxes-stacked">
+    PSR-11 compliant container in `src/Container.php`. Services are bound explicitly in `config/services.php`; unbound services are resolved by reflection (constructor autowiring). Supports shared singletons and transient bindings.
+  </Card>
+  <Card title="Brand Isolation" icon="building">
+    Data access in `src/Repository/` uses the `TenantScope` trait to filter all queries by `merchant_id` at the SQL level. Use `forTenant($brandId)` for scoped access and `forAllTenants()` only for deliberate owner-level views.
+  </Card>
+  <Card title="Double-Entry Ledger" icon="scale-balanced">
+    Money movements are recorded as balanced debits and credits across `op_ledger_accounts`, `op_ledger_transactions`, and `op_ledger_entries`. All monetary arithmetic uses **bcmath strings**, never floats.
+  </Card>
+  <Card title="Plugin System" icon="plug">
+    Plugins in `modules/` are discovered via `manifest.json`, scanned by `PluginSandbox` for dangerous calls (`exec`, `eval`, `shell_exec`, raw PDO), and loaded through `PluginLoader`. Hooks use WordPress-style `doAction` and `applyFilter`.
+  </Card>
+</CardGroup>
+
+### White-Label Custom Domains
+
+OwnPay is the first self-hosted payment platform to support per-brand custom-domain checkout on a single installation. A brand maps its own domain (e.g., `pay.yourbrand.com`), which is verified via a DNS TXT ownership record and A-record routing, then fully activated.
+
+`DomainMiddleware` resolves `HTTP_HOST` against the `op_domains` table, injects the `merchant_id`, and blocks `/admin/*` on all custom domains. Always build customer-facing URLs through `DomainUrlService` — never hardcode a host:
+
+```php
+// ✅ Correct — domain-aware URL builder
+$checkoutUrl = $domainUrlService->buildCheckoutUrl($token, $brand);
+
+// ❌ Wrong — breaks white-label custom domains
+$checkoutUrl = 'https://myserver.com/checkout/' . $token;
+```
+
+### Payment Gateway Architecture
+
+Gateways are plugins implementing `GatewayAdapterInterface`:
+
+```php
+interface GatewayAdapterInterface {
+    public function slug(): string;
+    public function initiate(array $params, array $credentials): array;
+    public function verify(array $callbackData, array $credentials): array;
+    public function verifyWebhook(string $rawBody, array $headers, array $credentials): bool;
+    public function refund(string $gatewayTrxId, string $amount, array $credentials): array;
+    public function supports(string $feature): bool;
+    public function supportedCurrencies(): array; // [] = any currency
+}
+```
+
+At checkout, the intent currency is auto-converted to a gateway-supported currency via `CurrencyService` using `op_exchange_rates`, and the conversion audit trail is stored in the transaction metadata. All inbound gateway callbacks are handled by a single `UnifiedWebhookController` endpoint (`POST /webhook/{gateway}`).
+
+### Repository Brand Isolation in Practice
+
+```php
+// Scoped to the active brand (safe default)
+$invoices = $this->invoiceRepo->forTenant($brandId)->paginateScoped($page, $perPage);
+
+// Explicit global view for owner-level pages only
+$all = $this->invoiceRepo->forAllTenants()->paginate();
+```
+
+<Warning>
+  Never run a scoped query without `forTenant()` or a deliberate `forAllTenants()`. Missing the tenant scope causes data bleed between brands.
+</Warning>
+
+### Self-Update Engine
+
+`src/Update/UpdateService.php` performs an atomic, rollback-safe update: fetch manifest → back up → enter maintenance → download (GitHub release asset) → **verify SHA-256 + RSA signature** → extract (with zip-slip guards) → run migrations → health-check → exit maintenance.
+
+## API Surface
+
+Three independent API layers, each with its own middleware group and authentication scheme:
+
+| Layer | Prefix | Auth |
+|---|---|---|
+| Merchant REST | `/api/v1/*` | Bearer API key (read/write scopes) |
+| Mobile Companion | `/api/mobile/v1/*` | JWT (after device pairing) |
+| Admin API | `/api/admin/v1/*` | Bearer API key (admin scope) |
+
+## Security Model
+
+OwnPay treats all external input as adversarial. Key rules every contributor must respect:
+
+<CardGroup cols={2}>
+  <Card title="SQL Safety" icon="database">
+    Prepared statements only via the `Database` wrapper. No string-interpolated SQL under any circumstances.
+  </Card>
+  <Card title="Output Escaping" icon="shield">
+    Twig autoescaping is always on. Never use `|raw` on untrusted data.
+  </Card>
+  <Card title="CSRF Protection" icon="lock">
+    `CsrfMiddleware` on all non-API mutations. Tokens via `SecurityHelpers::csrfToken()`.
+  </Card>
+  <Card title="SSRF Guards" icon="globe">
+    `UrlValidator` resolves and pins outbound webhook URLs to validated public IPs and never follows redirects.
+  </Card>
+</CardGroup>
+
+## Conventions for Contributors
+
+1. `declare(strict_types=1);` is the first line of every PHP file (no BOM).
+2. Keep PHPStan at **level 9** — run `composer analyse` before pushing.
+3. Money is **bcmath strings**, never floats.
+4. Scoped DB access always uses `forTenant()` / `*Scoped()`.
+5. Customer and gateway URLs always go through `DomainUrlService`.
+6. Run the full suite before submitting a PR: `composer test && composer analyse && composer lint`.
+
+<Tip>
+  New to the codebase? Start with `src/Kernel.php` to trace the full request lifecycle, then explore `src/Service/Payment/` for the payment processing core.
+</Tip>

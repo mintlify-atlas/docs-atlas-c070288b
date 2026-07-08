@@ -1,0 +1,137 @@
+---
+title: "OwnPay Roadmap: From Beta to 1.0 and Beyond"
+sidebarTitle: "Roadmap"
+description: "OwnPay's development roadmap — what shipped in Public Beta v0.1.0, what's being stabilized now, what's planned for 1.0, and the longer-term direction."
+---
+
+OwnPay ships when it's ready, not on a calendar. Because OwnPay handles real money, every feature must meet a security and quality bar before it lands — that means PHPStan level 9, a full PHPUnit suite, and real-world validation on self-hosted deployments. This roadmap documents where the project stands and where it's headed, shaped by community feedback rather than fixed dates.
+
+<Note>
+  This document reflects current intentions, not promises. Priorities shift as we learn from the community. Watch the [GitHub repository](https://github.com/own-pay/OwnPay) for release notifications and follow [blog.ownpay.org](https://blog.ownpay.org) for release notes.
+</Note>
+
+## Legend
+
+**✅ Shipped** — Live and self-hostable today  
+**🚧 In Progress** — Active work during the beta stabilization period  
+**🔭 Planned** — Committed for the 1.0 milestone  
+**🌅 Later** — Post-1.0 directions subject to community demand
+
+---
+
+## ✅ Shipped — Public Beta v0.1.0
+
+The foundation is live. These capabilities are available in every OwnPay installation today:
+
+<CardGroup cols={2}>
+  <Card title="Multi-Brand Architecture" icon="building">
+    Full tenant isolation via `merchant_id` on all scoped tables. Unlimited brands on a single installation with zero data bleed between them.
+  </Card>
+  <Card title="120+ Gateway Integrations" icon="credit-card">
+    Plugin-based gateway adapters for global cards, wallets, mobile financial services, crypto, BNPL, and regional platforms.
+  </Card>
+  <Card title="Hosted Checkout" icon="window">
+    Payment intents, payment links, invoices, and token-based checkout URLs with auto-expiry and status polling.
+  </Card>
+  <Card title="Refunds" icon="rotate-left">
+    Atomic, balance-validated partial and full refunds with ledger reconciliation and gateway routing.
+  </Card>
+  <Card title="Double-Entry Ledger" icon="scale-balanced">
+    GAAP-compliant ledger engine using bcmath string precision. Trial balance, multi-currency accounts, and a balance verification cron job.
+  </Card>
+  <Card title="White-Label Custom Domains" icon="globe">
+    Per-brand custom-domain checkout with DNS TXT ownership verification — an industry first for self-hosted payment platforms.
+  </Card>
+  <Card title="Sandboxed Plugin System" icon="plug">
+    Gateway, Theme, and Addon plugin types with static code auditing, manifest-based discovery, and a WordPress-style hook engine.
+  </Card>
+  <Card title="REST API & Webhooks" icon="code">
+    Merchant, Admin, and Mobile Companion API layers. HMAC-SHA256 signed webhooks with exponential backoff retry.
+  </Card>
+  <Card title="Mobile Companion Foundation" icon="mobile">
+    Device pairing via OTP and JWT, SMS forwarding, regex + heuristic SMS parsing, and automatic transaction matching.
+  </Card>
+  <Card title="Full Internationalization" icon="language">
+    Admin panel and customer checkout fully translatable. Dot-notation JSON catalogs, inline translation editor, and per-staff language preference.
+  </Card>
+  <Card title="Staff RBAC" icon="users">
+    Custom roles per brand with granular permission assignment and `PermissionMiddleware` enforcement on every request.
+  </Card>
+  <Card title="Self-Update Engine" icon="arrows-rotate">
+    Signed, atomic, rollback-safe updates. SHA-256 + RSA verification, zip-slip guards, automatic schema migrations, and maintenance mode.
+  </Card>
+  <Card title="Security Hardening" icon="shield">
+    AES-256-GCM PII encryption, Argon2id password hashing, CSRF protection, CSP with per-request nonce, SSRF guards, and rate limiting.
+  </Card>
+  <Card title="Quality Gates" icon="check-double">
+    PHPStan level 9 and an automated PHPUnit test suite run on every pull request.
+  </Card>
+</CardGroup>
+
+---
+
+## 🚧 Now — Stabilizing the Beta
+
+The current focus is making the v0.1.0 foundation production-solid before the 1.0 release:
+
+- **Real-world feedback loop** — triaging issues reported by beta self-hosters
+- **Public live demo** at [demo.ownpay.org](https://demo.ownpay.org)
+- **Expanded API documentation** at [docs.ownpay.org](https://docs.ownpay.org)
+- **Guides and tutorials** at [learn.ownpay.org](https://learn.ownpay.org)
+- **Hardening and edge-case validation** — stress testing payment flows, webhook delivery, and the cron pipeline
+- **Performance tuning** — PHP-FPM, MariaDB, Redis, and OPcache configuration
+- **Broader gateway coverage** — additional adapters and gateway-specific test coverage
+
+---
+
+## 🔭 Next — Toward 1.0 Stable
+
+These items are committed for the 1.0 stable release:
+
+<Steps>
+  <Step title="1.0 Stable Release">
+    The 1.0 tag will be cut once the quality bar and community feedback goals are met — not before. Security issues and financial accuracy regressions are blocking.
+  </Step>
+  <Step title="Plugin Marketplace">
+    A curated directory at [plugin.ownpay.org](https://plugin.ownpay.org) for discovering and installing gateways and add-ons directly from the admin panel.
+  </Step>
+  <Step title="Mobile Companion App GA">
+    General availability of the Android and iOS companion apps for SMS-based payment verification and push notifications.
+  </Step>
+  <Step title="One-Click Deployment Tooling">
+    VPS provisioning scripts and official container images to reduce time-to-running-installation to minutes.
+  </Step>
+  <Step title="Enhanced Reporting and Reconciliation">
+    Advanced analytics dashboards, revenue reports by brand and gateway, and automated reconciliation workflows.
+  </Step>
+  <Step title="Expanded Webhook Events and SDKs">
+    Broader webhook event catalog covering more lifecycle events, and official SDK packages for popular languages.
+  </Step>
+</Steps>
+
+---
+
+## 🌅 Later — Beyond 1.0
+
+Longer-term directions the project is excited about, subject to community demand and contributor availability:
+
+| Direction | Description |
+|---|---|
+| Marketplace ecosystem | Third-party plugin publishing with review and signing |
+| Regional MFS expansion | Additional mobile financial services coverage for emerging markets |
+| Advanced fraud and risk tooling | Configurable rule engine for flagging suspicious transactions |
+| Governance | A distributed maintainer team with a formal RFC process |
+
+---
+
+## How to Influence the Roadmap
+
+The roadmap is shaped by the people who run OwnPay. To propose a feature or change a priority:
+
+1. Open a [GitHub Discussion](https://github.com/own-pay/OwnPay/discussions) for broad ideas or direction changes.
+2. Open a [Feature Request Issue](https://github.com/own-pay/OwnPay/issues) for concrete, scoped additions.
+3. Submit a Pull Request — working code moves faster than requests.
+
+<Tip>
+  Issues labeled **`help wanted`** are features the core team has scoped and approved but needs contributors to implement. These are the fastest path to seeing something you care about land in the next release.
+</Tip>

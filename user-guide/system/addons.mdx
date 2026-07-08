@@ -1,0 +1,152 @@
+---
+title: "Addons: Manage Platform Utility Extensions in OwnPay"
+sidebarTitle: "Addons"
+description: "Activate and configure mail, SMS, and Telegram notification addons that provide backend utility services for your OwnPay platform."
+---
+
+Addons are a specialized category of OwnPay plugins that provide backend utility services rather than payment processing interfaces. While gateway plugins connect customers to payment networks, addons handle the supporting infrastructure that keeps your operation running smoothly — delivering transaction receipts by email, sending payment links by SMS, or pushing instant alerts to a Telegram channel. Each addon, once activated, appends a dedicated configuration tab to the System Settings panel where you enter the required API credentials.
+
+<Info>
+  Addons are listed separately from gateway and theme plugins to make them easier to locate and manage. Under the hood they share the same plugin architecture and manifest format. You can also find and install them from the main **Plugins** manager.
+</Info>
+
+## Accessing the Addons Panel
+
+<Steps>
+  <Step title="Log in as Super-Administrator">
+    Sign in to the OwnPay admin dashboard with your super-administrator credentials.
+  </Step>
+  <Step title="Open Addons">
+    In the left sidebar under the **SYSTEM** section, click **Addons**.
+  </Step>
+</Steps>
+
+---
+
+## Addons vs. Plugins: Key Distinction
+
+<CardGroup cols={2}>
+  <Card title="Gateway Plugins" icon="credit-card">
+    Connect customers to payment processors (Stripe, bKash, Nagad, etc.). They render checkout UI elements and handle payment authorization redirects.
+  </Card>
+  <Card title="Addons" icon="puzzle-piece">
+    Provide backend utility services (email delivery, SMS dispatch, Telegram notifications). They do not render customer-facing checkout UI but power the notification and communication layer.
+  </Card>
+</CardGroup>
+
+---
+
+## Available Addons
+
+### Mail Gateway
+
+The **Mail Gateway** addon integrates with outbound email transports to deliver transactional messages — payment receipts, invoice confirmations, and system notifications — to customers and administrators.
+
+Supported transports include SMTP, Mailgun, and SendGrid. Once activated, a **Mail** configuration tab appears in System Settings where you enter the transport credentials (host, port, username, password, encryption type).
+
+<Note>
+  Keep the Mail Gateway addon active on all production deployments. Without it, customers will not automatically receive transaction invoices and payment confirmation emails.
+</Note>
+
+### SMS Gateway
+
+The **SMS Gateway** addon connects OwnPay to outbound SMS providers for sending payment links, OTP verification codes, and checkout notifications directly to customers' mobile numbers.
+
+Supported providers include Twilio, Vonage, and custom HTTP SMS APIs. After activation, an **SMS** tab appears in System Settings for credential entry.
+
+### Telegram Bot
+
+The **Telegram Bot** addon configures an outbound Telegram bot to deliver real-time payment notifications — successful transactions, pending verifications, and failed payments — directly to one or more Telegram channels or group chats.
+
+After activation, a **Telegram** configuration tab appears in System Settings where you enter the bot token and target chat ID.
+
+---
+
+## Activating an Addon
+
+<Steps>
+  <Step title="Locate the Addon">
+    On the **Addons** page, find the addon card you want to enable (e.g., **Mail Gateway**).
+  </Step>
+  <Step title="Click Activate">
+    Click the **Activate** button on the card.
+  </Step>
+  <Step title="Confirm Status Change">
+    The status badge updates from `Inactive` to `Active`.
+  </Step>
+  <Step title="Configure the Addon">
+    Navigate to **SYSTEM → Settings** and select the newly appended configuration tab (e.g., **Mail**, **SMS**, or **Telegram**). Enter the required API credentials and save.
+  </Step>
+</Steps>
+
+---
+
+## Installing Additional Addons
+
+If you have a custom or third-party addon package, you can upload it directly from the Addons panel.
+
+<Steps>
+  <Step title="Click Install Addon">
+    Click the **Install Addon** link in the Addons page header. This opens the plugin file uploader at `/admin/plugins/install`.
+  </Step>
+  <Step title="Upload the Package">
+    Select and upload the `.zip` addon archive. The package must include a valid `manifest.json` with `"type": "addon"`.
+  </Step>
+  <Step title="Activate">
+    Once uploaded, the addon appears in the list. Click **Activate** to enable it and reveal its configuration tab in Settings.
+  </Step>
+</Steps>
+
+<Warning>
+  Only install addon packages from trusted publishers. Like all plugins, addons run with administrative permissions and have access to the database and outbound network.
+</Warning>
+
+---
+
+## Addon Card Reference
+
+Each addon card displays the following information:
+
+| Element | Description |
+|---|---|
+| **Title** | Display name of the addon (e.g., `Mail Gateway`). |
+| **Description** | Summary of what the addon does and which providers it supports. |
+| **Version** | Current installed package version. |
+| **Publisher** | Developer or organization that maintains the addon. |
+| **Status Badge** | `Active` (green) or `Inactive` (gray). |
+| **Activate Button** | Enables the addon and appends its settings tab. |
+
+---
+
+## Best Practices
+
+<Accordion title="Always keep Mail Gateway active in production">
+  The Mail Gateway addon is essential for customer-facing communication. Without it, payment confirmation emails, invoice receipts, and password reset messages will not be delivered. Activate and configure it before going live.
+</Accordion>
+
+<Accordion title="Deactivate unused addons to save resources">
+  Each active addon loads its code into the PHP runtime on every request cycle. Deactivate notification addons you are not using (e.g., if you only use email, keep SMS and Telegram inactive) to reduce memory overhead.
+</Accordion>
+
+<Accordion title="Avoid duplicate notification handlers">
+  Running both Telegram and SMS alerts for every checkout event doubles the outbound notification overhead per transaction. Choose the channel that best fits your operational workflow and keep the other deactivated unless you genuinely need both.
+</Accordion>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Plugins" icon="plug" href="/user-guide/system/plugins">
+    View and manage all platform extensions including gateways and themes.
+  </Card>
+  <Card title="System Settings" icon="gear" href="/user-guide/system/settings">
+    Configure credentials for activated addons via the Settings tabs.
+  </Card>
+  <Card title="System Update" icon="arrow-up-to-line" href="/user-guide/system/system-update">
+    Keep the core platform and its bundled addons up to date.
+  </Card>
+  <Card title="Developer Hub" icon="code" href="/user-guide/developers/developer-hub">
+    Generate API keys and configure webhook endpoints for integrations.
+  </Card>
+</CardGroup>

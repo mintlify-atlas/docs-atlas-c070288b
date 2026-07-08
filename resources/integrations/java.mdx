@@ -1,0 +1,437 @@
+---
+title: "Integrate OwnPay with Java Applications"
+sidebarTitle: "Java"
+description: "Complete guide to calling the OwnPay REST API from Java using the built-in HttpClient — payments, webhooks, refunds, and error handling."
+---
+
+Java's built-in `java.net.http.HttpClient` (available since Java 11) provides everything you need to integrate with OwnPay's REST API without introducing any third-party HTTP library dependency. This guide walks through setting up an authenticated client, creating payment intents, verifying outcomes, handling webhooks inside a servlet or Spring controller, and issuing refunds — using only the standard library and the widely available Gson library for JSON serialisation.
+
+<Info>
+OwnPay has no official Java SDK at this time. All integration is done directly over HTTP. The examples below use Java 11+ `HttpClient` and Gson. You can substitute Jackson or any other JSON library you already use.
+</Info>
+
+## Dependencies
+
+Add Gson to your `pom.xml` (Maven) or `build.gradle` (Gradle):
+
+<Tabs>
+  <Tab title="Maven">
+```xml
+<dependency>
+    <groupId>com.google.code.gson</groupId>
+    <artifactId>gson</artifactId>
+    <version>2.10.1</version>
+</dependency>
+```
+  </Tab>
+  <Tab title="Gradle">
+```java
+implementation 'com.google.code.gson:gson:2.10.1'
+```
+  </Tab>
+</Tabs>
+
+Store your credentials as environment variables:
+
+```bash
+export OWNPAY_API_KEY="op.xxxxxxxxxxxxx"
+export OWNPAY_BASE_URL="https://pay.yourbrand.com/api/v1"
+```
+
+---
+
+## Client Setup
+
+```java
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+
+public class OwnPayClient {
+
+    private static final String BASE_URL = System.getenv("OWNPAY_BASE_URL");
+    private static final String API_KEY  = System.getenv("OWNPAY_API_KEY");
+
+    private final HttpClient http;
+    private final Gson       gson;
+
+    public OwnPayClient() {
+        this.http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        this.gson = new Gson();
+    }
+
+    /** Build a pre-authenticated GET request. */
+    private HttpRequest.Builder baseRequest(String path) {
+        return HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + path))
+                .header("Authorization", "Bearer " + API_KEY)
+                .header("Accept",        "application/json")
+                .timeout(Duration.ofSeconds(30));
+    }
+
+    /** Execute a request and return the parsed JSON body. */
+    private JsonObject execute(HttpRequest request) throws Exception {
+        HttpResponse<String> response =
+                http.send(request, HttpResponse.BodyHandlers.ofString());
+
+        JsonObject body = gson.fromJson(response.body(), JsonObject.class);
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            String error = body.has("error")
+                    ? body.get("error").getAsString()
+                    : "HTTP " + response.statusCode();
+            throw new OwnPayException(response.statusCode(), error, body);
+        }
+        return body.getAsJsonObject("data");
+    }
+}
+```
+
+---
+
+## Custom Exception
+
+```java
+public class OwnPayException extends Exception {
+
+    private final int        statusCode;
+    private final JsonObject responseBody;
+
+    public OwnPayException(int statusCode, String message, JsonObject responseBody) {
+        super("[" + statusCode + "] " + message);
+        this.statusCode   = statusCode;
+        this.responseBody = responseBody;
+    }
+
+    public int getStatusCode()          { return statusCode; }
+    public JsonObject getResponseBody() { return responseBody; }
+}
+```
+
+---
+
+## Health Check
+
+```java
+public JsonObject healthCheck() throws Exception {
+    HttpRequest request = baseRequest("/health")
+            .GET()
+            .build();
+
+    // /health returns the data object directly
+    HttpResponse<String> response =
+            http.send(request, HttpResponse.BodyHandlers.ofString());
+
+    JsonObject body = gson.fromJson(response.body(), JsonObject.class);
+    return body.getAsJsonObject("data");
+}
+
+// Usage
+OwnPayClient client = new OwnPayClient();
+JsonObject health = client.healthCheck();
+System.out.println("Status : " + health.get("status").getAsString());
+System.out.println("Version: " + health.get("version").getAsString());
+```
+
+---
+
+## Creating a Payment Intent
+
+```java
+public JsonObject createPayment(
+        String amount,
+        String currency,
+        String reference,
+        String callbackUrl,
+        String redirectUrl,
+        String cancelUrl,
+        String customerEmail,
+        String customerName
+) throws Exception {
+
+    JsonObject payload = new JsonObject();
+    payload.addProperty("amount",         amount);
+    payload.addProperty("currency",       currency);
+    payload.addProperty("reference",      reference);
+    payload.addProperty("callback_url",   callbackUrl);
+    payload.addProperty("redirect_url",   redirectUrl);
+    payload.addProperty("cancel_url",     cancelUrl);
+    payload.addProperty("customer_email", customerEmail);
+    payload.addProperty("customer_name",  customerName);
+
+    String body = gson.toJson(payload);
+
+    HttpRequest request = baseRequest("/payments")
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build();
+
+    return execute(request);
+}
+
+// Usage
+try {
+    JsonObject payment = client.createPayment(
+            "500.00",
+            "BDT",
+            "INV-10029",
+            "https://my-store.com/webhooks/ownpay",
+            "https://my-store.com/checkout/success",
+            "https://my-store.com/checkout/cancel",
+            "customer@example.com",
+            "John Doe"
+    );
+
+    String paymentId  = payment.get("payment_id").getAsString();
+    String checkoutUrl = payment.get("checkout_url").getAsString();
+
+    System.out.println("Payment ID  : " + paymentId);
+    System.out.println("Checkout URL: " + checkoutUrl);
+
+    // Redirect the user to checkoutUrl
+} catch (OwnPayException ex) {
+    System.err.println("Payment creation failed: " + ex.getMessage());
+}
+```
+
+<Tip>
+Store `paymentId` in your user session so you can call `GET /payments/{paymentId}` when the customer returns to your `redirectUrl`.
+</Tip>
+
+---
+
+## Retrieving a Payment
+
+```java
+public JsonObject getPayment(String paymentId) throws Exception {
+    HttpRequest request = baseRequest("/payments/" + paymentId)
+            .GET()
+            .build();
+    return execute(request);
+}
+
+// Verify before fulfilling an order
+JsonObject payment = client.getPayment("a810b445-564a-4e20-80a5-f1261d7b328a");
+
+if ("completed".equals(payment.get("status").getAsString())) {
+    System.out.println("Order fulfilled: " + payment.get("trx_id").getAsString());
+} else {
+    System.out.println("Payment pending — do not fulfil yet.");
+}
+```
+
+<Warning>
+Always verify payment status via the API after the customer returns. Query parameters on the redirect URL can be tampered with.
+</Warning>
+
+---
+
+## Listing Transactions
+
+```java
+public JsonObject listTransactions(String status, String from, String to,
+                                   int page, int perPage) throws Exception {
+    String query = String.format("?page=%d&per_page=%d", page, perPage);
+    if (status != null) query += "&status=" + status;
+    if (from   != null) query += "&from="   + from;
+    if (to     != null) query += "&to="     + to;
+
+    HttpRequest request = baseRequest("/transactions" + query)
+            .GET()
+            .build();
+
+    // Return the full body so callers can access both data and meta
+    HttpResponse<String> response =
+            http.send(request, HttpResponse.BodyHandlers.ofString());
+    return gson.fromJson(response.body(), JsonObject.class);
+}
+
+// Usage
+JsonObject result = client.listTransactions("completed", "2026-06-01", "2026-06-30", 1, 50);
+result.getAsJsonArray("data").forEach(element -> {
+    JsonObject txn = element.getAsJsonObject();
+    System.out.printf("  %s  %s %s  %s%n",
+            txn.get("trx_id").getAsString(),
+            txn.get("amount").getAsString(),
+            txn.get("currency").getAsString(),
+            txn.get("status").getAsString()
+    );
+});
+```
+
+---
+
+## Issuing a Refund
+
+```java
+public JsonObject createRefund(String trxId, String amount, String reason)
+        throws Exception {
+
+    JsonObject payload = new JsonObject();
+    payload.addProperty("trx_id", trxId);
+    if (amount != null) payload.addProperty("amount", amount);
+    if (reason != null) payload.addProperty("reason", reason);
+
+    HttpRequest request = baseRequest("/refunds")
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(payload)))
+            .build();
+
+    return execute(request);
+}
+
+// Partial refund
+JsonObject refund = client.createRefund(
+        "OP-481029304",
+        "150.00",
+        "Customer requested return"
+);
+System.out.println("Refund status: " + refund.get("status").getAsString());
+```
+
+---
+
+## Handling Webhooks (Spring Boot)
+
+```java
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/webhooks")
+public class WebhookController {
+
+    private final OwnPayClient ownPayClient;
+
+    public WebhookController(OwnPayClient ownPayClient) {
+        this.ownPayClient = ownPayClient;
+    }
+
+    @PostMapping("/ownpay")
+    public ResponseEntity<Map<String, Object>> handleWebhook(
+            @RequestBody Map<String, Object> event) {
+
+        String eventType = (String) event.get("event");
+
+        if (!"payment.completed".equals(eventType)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("ok", false, "reason", "unrecognised event"));
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data  = (Map<String, Object>) event.get("data");
+        String              trxId = (String) data.get("trx_id");
+
+        try {
+            // Re-verify via API before fulfilling the order
+            JsonObject transaction = ownPayClient.getTransaction(trxId);
+
+            if (!"completed".equals(transaction.get("status").getAsString())) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("ok", false, "reason", "not completed"));
+            }
+
+            // Fulfil order here
+            System.out.println("Fulfilling order: " +
+                    transaction.get("reference").getAsString());
+
+            return ResponseEntity.ok(Map.of("ok", true));
+
+        } catch (OwnPayException ex) {
+            return ResponseEntity.status(ex.getStatusCode())
+                    .body(Map.of("ok", false, "reason", ex.getMessage()));
+        } catch (Exception ex) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("ok", false, "reason", "internal error"));
+        }
+    }
+}
+```
+
+<Note>
+Return HTTP `200` immediately and process heavyweight work (database writes, email sends) in a background thread or message queue. OwnPay expects a response within 10 seconds.
+</Note>
+
+---
+
+## Customer Management
+
+```java
+public JsonObject createCustomer(String name, String email, String phone)
+        throws Exception {
+
+    JsonObject payload = new JsonObject();
+    payload.addProperty("name", name);
+    if (email != null) payload.addProperty("email", email);
+    if (phone != null) payload.addProperty("phone", phone);
+
+    HttpRequest request = baseRequest("/customers")
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(payload)))
+            .build();
+
+    return execute(request);
+}
+
+public JsonObject getCustomer(String identifier) throws Exception {
+    String encoded = java.net.URLEncoder.encode(identifier,
+            java.nio.charset.StandardCharsets.UTF_8);
+    HttpRequest request = baseRequest("/customers/" + encoded)
+            .GET()
+            .build();
+    return execute(request);
+}
+
+// Usage
+JsonObject newCustomer = client.createCustomer(
+        "Alice Smith", "alice@example.com", "+8801800000000");
+System.out.println("UUID: " + newCustomer.get("uuid").getAsString());
+
+JsonObject customer = client.getCustomer("alice@example.com");
+System.out.println("Name: " + customer.get("name").getAsString());
+```
+
+---
+
+## Error Handling Reference
+
+<Accordion title="OwnPay HTTP error codes and Java handling strategy">
+| Status | Meaning | Java handling |
+|--------|---------|---------------|
+| `400` | Business rule violation | Log and surface to operator |
+| `401` | Invalid or missing API key | Check `OWNPAY_API_KEY` env var |
+| `403` | Insufficient scope | Re-generate key with correct scopes |
+| `404` | Resource not found | Validate IDs before making requests |
+| `409` | Duplicate email on customer create | Look up existing customer instead |
+| `422` | Validation failure | Parse `errors` array for field details |
+| `503` | System degraded | Retry with exponential back-off |
+</Accordion>
+
+```java
+try {
+    JsonObject payment = client.createPayment(/* ... */);
+} catch (OwnPayException ex) {
+    System.err.println("Status  : " + ex.getStatusCode());
+    System.err.println("Message : " + ex.getMessage());
+
+    // Inspect per-field validation errors if present
+    JsonObject body   = ex.getResponseBody();
+    if (body.has("errors")) {
+        body.getAsJsonArray("errors").forEach(e -> {
+            JsonObject err = e.getAsJsonObject();
+            System.err.printf("  Field '%s': %s%n",
+                    err.get("field").getAsString(),
+                    err.get("message").getAsString());
+        });
+    }
+}
+```

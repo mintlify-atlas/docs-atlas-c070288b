@@ -1,0 +1,123 @@
+---
+title: "SMS Match Templates — Configuring Payment Parsing Rules"
+sidebarTitle: "SMS Templates"
+description: "Create regex and heuristic patterns to extract payment amounts and transaction IDs from mobile banking SMS alerts for automatic payment confirmation."
+---
+
+SMS match templates are the intelligence layer of OwnPay's mobile payment automation. When a paired Android device forwards an incoming wallet notification to the server, OwnPay needs to know *which gateway the message belongs to* and *how to extract the payment amount and transaction ID* from the raw SMS text. Templates define these rules using regular expressions (regex), sender identifiers, and priority ordering. A well-configured set of templates means your manual wallet gateways — bKash, Nagad, Rocket, and others — confirm payments automatically without any staff intervention.
+
+## Navigating to SMS Templates
+
+In the OwnPay admin dashboard, expand the **MOBILE & SMS** section in the left sidebar and click **SMS Centre**. The SMS Centre opens with the templates list, creation form, and testing tools.
+
+## How Templates Work
+
+When an SMS arrives from a paired device, the server runs it through the template evaluation engine:
+
+1. The message's **sender identifier** (the "From" field) is matched against each template's **Sender Pattern**.
+2. The first template whose sender pattern matches (ordered by **Priority**) is selected.
+3. The template's **Amount Regex** and **Transaction ID Regex** are applied to the message body using capture group `(1)` to extract the values.
+4. The extracted Transaction ID is matched against open `pending` transactions on the server.
+5. If a match is found and the amount aligns, the transaction is automatically marked `completed`.
+
+## Template Fields
+
+| Field | Required | Example | Description |
+|---|---|---|---|
+| **Gateway** | Yes | `Nagad Personal` | The manual gateway this template serves. Matched transactions are approved against this gateway's pending checkouts. |
+| **Sender Pattern** | Yes | `NAGAD` | The SMS sender identifier. Case-sensitive. Must match the "From" field of the wallet provider's SMS exactly. |
+| **Priority** | No | `10` | Evaluation order (1–999). Lower numbers are evaluated first. Use priority to resolve conflicts when multiple templates could match the same sender. |
+| **Amount Regex** | Yes | `Amount: Tk ([\d\.]+)` | Regex with a capture group `(1)` that extracts the payment amount from the message body. |
+| **Transaction ID Regex** | No | `TxID: (\w+)` | Regex with a capture group `(1)` that extracts the unique Transaction ID from the message body. |
+| **Sender Account Regex** | No | `Customer: (01\d{9})` | Regex with a capture group `(1)` that extracts the customer's phone number from the message body. Optional but useful for cross-referencing. |
+| **Status** | Yes | `Active` | `Active` templates are evaluated; `Inactive` templates are skipped. |
+
+<Note>
+  All regex patterns must include parentheses `()` to designate a **capture group**. OwnPay extracts the value matched inside group `(1)`. A pattern without parentheses will cause parsing failure — for example, use `Amount: Tk ([\d\.]+)` rather than `Amount: Tk [\d\.]+`.
+</Note>
+
+## Creating a Template Manually
+
+<Steps>
+  <Step title="Open the SMS Centre and click + New Template">
+    Navigate to **Mobile & SMS → SMS Centre** and click the **+ New Template** button to open the creation form.
+  </Step>
+  <Step title="Select the target gateway">
+    Open the **Gateway** dropdown and select the manual gateway this template will serve (e.g. `Nagad Personal`). Matched transactions will be looked up against pending checkouts on this gateway.
+  </Step>
+  <Step title="Set the sender pattern">
+    Enter the **Sender Pattern** exactly as it appears in the SMS "From" field for this wallet provider (e.g. `NAGAD` for Nagad, `bKash` for bKash). Remember that this field is case-sensitive.
+  </Step>
+  <Step title="Write the amount regex">
+    In the **Amount Regex** field, enter a regex pattern that captures the payment amount in group `(1)`. For example: `Amount: Tk ([\d,]+\.?\d*)` captures the amount from "Amount: Tk 1,500.00".
+  </Step>
+  <Step title="Write the transaction ID regex">
+    In the **Transaction ID Regex** field, enter a pattern that captures the unique TrxID in group `(1)`. For example: `TxID: (\w+)` captures the ID from "TxID: 12A34B56C7".
+  </Step>
+  <Step title="Set priority and status">
+    Assign a **Priority** value (lower = evaluated first). Leave **Status** set to `Active`.
+  </Step>
+  <Step title="Save the template">
+    Click **Create Template**. The new rule appears in the templates list and is immediately active for incoming SMS matching.
+  </Step>
+</Steps>
+
+## Testing a Template Against Sample SMS
+
+OwnPay provides a **Live Regex Tester** sandbox directly in the SMS Centre, allowing you to verify a pattern before saving it as an active template.
+
+<Steps>
+  <Step title="Scroll to the Live Regex Tester section">
+    On the SMS Centre page, scroll down to the **Live Regex Tester** panel.
+  </Step>
+  <Step title="Paste a real SMS message">
+    Paste the full text of an actual wallet SMS into the **SMS Body** textbox. Use a real message to ensure your pattern accounts for the exact formatting the provider uses.
+  </Step>
+  <Step title="Enter your regex pattern">
+    Type your capture group regex in the **Regex Pattern** input (e.g. `TxID: (\w+)`).
+  </Step>
+  <Step title="Select the target field">
+    Choose the field you are testing from the **Field** dropdown — `Amount`, `Transaction ID`, or `Sender Account`.
+  </Step>
+  <Step title="Click Test Regex">
+    Click **Test Regex**. The result box shows the value extracted from group `(1)` of your pattern (e.g. `12A34B56C7`). If the result is empty or incorrect, adjust the pattern and test again before saving.
+  </Step>
+</Steps>
+
+<Tip>
+  Always test every regex pattern in the Live Regex Tester with at least two or three real SMS samples before saving. Wallet providers occasionally change their message formats with app updates — a template that worked last month may need a minor adjustment after a provider update.
+</Tip>
+
+## Alternative Template Creation Methods
+
+OwnPay offers two additional methods for creating templates if you are unfamiliar with regex syntax:
+
+<Accordion title="Smart SMS Parser — Heuristic Analysis (Method B)">
+  Paste a sample SMS message into the **Smart SMS Parser** section. The system analyses the message structure using heuristic rules and suggests a pre-built regex template. Review the suggested patterns, adjust if needed, and click **Use Template** to populate the creation form automatically.
+</Accordion>
+
+<Accordion title="AI Prompt Generator (Method C)">
+  Click **Generate AI Prompt** to produce a structured prompt you can copy and paste into an AI assistant such as ChatGPT, Gemini, or Claude. The AI translates your sample SMS text into a JSON parsing block that maps directly to OwnPay's template fields. Paste the AI's output into the creation form to populate all regex fields at once.
+</Accordion>
+
+## Templates List View
+
+The templates table shows all active and inactive parsing rules:
+
+| Column | Description |
+|---|---|
+| **Gateway** | The manual gateway this template is bound to. |
+| **Sender Pattern** | The "From" identifier matched against incoming SMS sender fields. |
+| **Amount Regex** | The capture pattern used to extract the payment amount. |
+| **TrxID Regex** | The capture pattern used to extract the Transaction ID. |
+| **Priority** | Evaluation order — lower numbers run first. |
+| **Status** | `Active` (evaluated) or `Inactive` (skipped). |
+| **Actions** | **Edit** modifies the template; **Delete** removes it permanently. |
+
+<Warning>
+  Sender patterns are case-sensitive. `NAGAD` and `nagad` are treated as different patterns. Always copy the sender identifier directly from a real SMS message rather than typing it from memory to avoid case mismatches that prevent any messages from matching.
+</Warning>
+
+<Warning>
+  Avoid using nested quantifiers in your regex patterns (e.g. `(a+)+`). These can cause catastrophic backtracking, known as a ReDoS (Regular Expression Denial of Service) attack, which will severely degrade server performance when processing SMS messages. Keep patterns simple and specific.
+</Warning>

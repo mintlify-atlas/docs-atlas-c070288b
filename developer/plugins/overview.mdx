@@ -1,0 +1,385 @@
+---
+title: "OwnPay Plugin System: Architecture Overview"
+sidebarTitle: "Plugin Overview"
+description: "Learn how OwnPay's plugin system works — types, directory layout, config.json schema, lifecycle phases, Plugin API, and CLI management commands."
+---
+
+OwnPay's plugin system lets you extend every part of the platform — from adding payment gateways and building admin dashboards to redesigning the checkout experience — without ever touching core files. Every feature you add lives in its own isolated directory under `modules/`, upgrades cleanly, and can be activated or deactivated per brand.
+
+## Plugin Types
+
+OwnPay ships three distinct plugin types. Each type is loaded from a different directory and provides a different integration surface.
+
+<CardGroup cols={3}>
+  <Card title="Gateway" icon="credit-card">
+    Add new payment methods: Stripe, bKash, GCash, crypto, or any custom processor. Gateway plugins implement the `GatewayAdapterInterface` and handle checkout initiation, callback verification, webhook validation, and refunds.
+  </Card>
+  <Card title="Addon" icon="puzzle-piece">
+    Extend the platform with new features: reporting dashboards, SMS notifications, CRM integrations, subscription billing, scheduled sync jobs, or custom API endpoints.
+  </Card>
+  <Card title="Theme" icon="palette">
+    Override checkout page templates and inject brand-scoped CSS and JavaScript. Theme plugins control the full visual experience of every customer-facing screen.
+  </Card>
+</CardGroup>
+
+## Directory Structure
+
+Each plugin lives under its own directory inside the type-specific subdirectory. The slug used as the directory name must match the `slug` field in `manifest.json` exactly.
+
+```
+modules/
+├── gateways/
+│   └── stripe/
+│       ├── manifest.json       # Plugin metadata and capabilities
+│       ├── StripeGateway.php   # Entrypoint class
+│       ├── icon.svg            # Gateway logo shown in admin
+│       ├── assets/
+│       │   └── checkout.js     # JS loaded on checkout page
+│       └── migrations/
+│           └── 001_create_stripe_logs.sql
+├── addons/
+│   └── email-logger/
+│       ├── manifest.json
+│       ├── Plugin.php
+│       ├── Service/
+│       │   └── Logger.php
+│       ├── Cron/
+│       │   └── CleanupJob.php
+│       └── migrations/
+│           └── 001_create_email_logs.sql
+└── themes/
+    └── my-theme/
+        ├── manifest.json
+        ├── Theme.php
+        └── templates/
+            ├── checkout.twig
+            └── checkout-status.twig
+```
+
+<Note>
+  Plugins placed under `modules/gateways/` must include `"type": "gateway"` in `manifest.json`. Addons go under `modules/addons/` with `"type": "addon"`, and themes under `modules/themes/` with `"type": "theme"`. Mismatches cause load failure.
+</Note>
+
+## The `manifest.json` Schema
+
+Every plugin requires a `manifest.json` at its root. This is the single source of truth for discovery, validation, and database registration.
+
+```json
+{
+  "name": "Stripe Payment Gateway",
+  "slug": "stripe",
+  "version": "1.0.0",
+  "description": "Accept payments via Stripe — cards, wallets, international payments.",
+  "author": "OwnPay Core",
+  "type": "gateway",
+  "entrypoint": "StripeGateway.php",
+  "namespace": "OwnPay\\Modules\\Gateways\\Stripe",
+  "capabilities": ["gateway"],
+  "requires": {
+    "core": ">=0.1.0",
+    "php": ">=8.1"
+  },
+  "permissions": [
+    "gateway.process",
+    "gateway.refund"
+  ]
+}
+```
+
+<Accordion title="Full Field Reference">
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | ✅ | Human-readable display name shown in the admin panel. |
+| `slug` | `string` | ✅ | Unique lowercase identifier. Pattern: `^[a-z0-9][a-z0-9\-]{0,62}[a-z0-9]$`. Must match directory name. |
+| `version` | `string` | ✅ | Semantic version string (e.g., `1.0.0`). |
+| `description` | `string` | ✅ | Short human-readable summary. |
+| `author` | `string` | ✅ | Plugin author name or organisation. |
+| `type` | `string` | ✅ | One of `"gateway"`, `"addon"`, or `"theme"`. |
+| `entrypoint` | `string` | ✅ | PHP filename containing the entrypoint class. No path traversal permitted. |
+| `namespace` | `string` | ✅ | PSR-4 root namespace. All classes under this namespace autoload from the plugin directory. |
+| `capabilities` | `array` | ✅ | One or more `Capability` enum string values (see [Capabilities](/developer/plugins/capabilities)). |
+| `requires.core` | `string` | ✅ | Semver constraint the OwnPay core version must satisfy. |
+| `requires.php` | `string` | ❌ | PHP version constraint. |
+| `permissions` | `array` | ❌ | RBAC permission strings required for the plugin's operations. |
+| `icon` | `string` | ❌ | Icon filename relative to plugin root. Copied to `public/assets/img/gateways/{slug}.{ext}`. |
+| `color` | `string` | ❌ | Hex brand color shown in the UI (e.g., `"#635BFF"`). |
+| `csp` | `object` | ❌ | Content Security Policy extensions. Keys: `script_src`, `style_src`, `frame_src`, `connect_src`. |
+| `routes` | `array` | ❌ | Addon route tuples `["METHOD", "/path", "handlerMethod", "middlewareGroup"]`. |
+| `cron` | `array` | ❌ | Scheduled job declarations with `name`, `schedule`, and `class`. |
+| `admin_menu` | `array` | ❌ | Sidebar navigation entries with `label` and `url`. |
+| `migrations` | `string` | ❌ | Path to migrations directory. Defaults to `"migrations"`. |
+
+</Accordion>
+
+## Plugin Lifecycle
+
+When OwnPay boots, every enabled plugin passes through a fixed sequence of stages. Understanding this sequence is critical for knowing where to put your initialization code.
+
+<Steps>
+  <Step title="Discovery">
+    `PluginLoader::loadActive()` scans the type-specific `modules/` subdirectory, finds all directories containing a `manifest.json`, and validates the manifest schema.
+  </Step>
+  <Step title="Registration">
+    Each manifest's entrypoint file is token-scanned for blocked functions (`eval`, `exec`, `shell_exec`, etc.). If the scan passes, the entrypoint class is instantiated and `PluginInterface::register()` is called, wrapped with `events->pushOwner($slug)` so all hook registrations are attributed to the plugin slug.
+  </Step>
+  <Step title="Configuration">
+    Config files and plugin settings stored in `op_system_settings` are read. The PSR-4 autoloader is registered for the plugin's declared `namespace`.
+  </Step>
+  <Step title="Activation">
+    `PluginInterface::boot()` is called after all plugins have registered. All DI container services are fully resolved at this point. Gateway plugins are automatically registered with `GatewayBridge`.
+  </Step>
+  <Step title="Runtime">
+    The plugin responds to HTTP requests and events through its registered hooks and routes. Brand-context scoping ensures each listener only fires for brands where the plugin is active.
+  </Step>
+  <Step title="Deactivation">
+    `PluginInterface::deactivate()` is called. Flush caches and cancel remote subscriptions here. Do **not** drop database tables — that belongs in `uninstall()`.
+  </Step>
+</Steps>
+
+## Plugin Class Structure
+
+All three plugin types implement `OwnPay\Plugin\PluginInterface`, which requires six methods.
+
+```php
+<?php
+declare(strict_types=1);
+
+namespace OwnPay\Plugins\MyPlugin;
+
+use OwnPay\Container;
+use OwnPay\Event\EventManager;
+use OwnPay\Plugin\Capability;
+use OwnPay\Plugin\PluginInterface;
+
+final class MyPlugin implements PluginInterface
+{
+    public static function metadata(): array
+    {
+        return [
+            'name'        => 'My Plugin',
+            'slug'        => 'my-plugin',
+            'version'     => '1.0.0',
+            'description' => 'A brief description of what this plugin does.',
+            'author'      => 'Your Name',
+            'type'        => 'addon',
+        ];
+    }
+
+    public function capabilities(): array
+    {
+        return [Capability::ADDON, Capability::HOOKS];
+    }
+
+    public function register(EventManager $events, Container $container): void
+    {
+        // Register ALL hooks and filters here.
+        // This is called during the boot phase, before boot().
+        $events->addAction('payment.transaction.completed', [$this, 'onPaymentCompleted']);
+    }
+
+    public function boot(Container $container): void
+    {
+        // All DI services are fully resolved here.
+        // Capture container services you need at request time.
+    }
+
+    public function deactivate(Container $container): void
+    {
+        // Flush caches, cancel remote subscriptions.
+        // Do NOT drop tables here.
+    }
+
+    public function uninstall(Container $container): void
+    {
+        // Drop any op_plugin_* tables created by migrations.
+        // Remove stored settings specific to this plugin.
+    }
+
+    public function fields(): array
+    {
+        // Configuration fields rendered in the plugin settings form.
+        return [
+            ['name' => 'api_key', 'label' => 'API Key', 'type' => 'password'],
+        ];
+    }
+}
+```
+
+<Warning>
+  Hook registrations made inside `boot()` or the constructor are **not** attributed to your plugin slug and bypass the brand-context activation check. Always register hooks inside `register()`.
+</Warning>
+
+## Plugin API
+
+### Accessing Core Services
+
+Resolve services from the `$container` argument passed to `register()` and `boot()`. The container holds all services registered in `config/services.php`.
+
+```php
+public function boot(Container $container): void
+{
+    // Resolve the settings repository
+    $settings = $container->get(\OwnPay\Repository\SettingsRepository::class);
+
+    // Read plugin-scoped settings (stored under group "plugin.{slug}")
+    $apiKey = $settings->getGroup('plugin.my-plugin')['api_key'] ?? '';
+
+    // Read brand-scoped settings for a specific merchant
+    $brandSettings = $settings->forTenant($merchantId)->getGroup('plugin.my-plugin');
+}
+```
+
+### Database Access
+
+Plugin-owned tables must be prefixed with `op_plugin_`. Direct access to core `op_*` tables is blocked by `PluginSandbox::validateSql()`.
+
+```php
+use OwnPay\Database\Database;
+
+// Query builder — safe and recommended
+$records = Database::table('op_plugin_my_plugin_logs')
+    ->where('merchant_id', $merchantId)
+    ->where('status', 'pending')
+    ->get();
+
+// Raw query with bound parameters — use named placeholders
+$rows = Database::fetchAll(
+    'SELECT * FROM op_plugin_my_plugin_logs WHERE trx_id = :trx_id',
+    ['trx_id' => $trxId]
+);
+
+// Insert a row
+Database::execute(
+    'INSERT INTO op_plugin_my_plugin_logs (merchant_id, trx_id, created_at) VALUES (:mid, :trx, NOW())',
+    ['mid' => $merchantId, 'trx' => $trxId]
+);
+```
+
+### Registering Routes
+
+Routes declared in `manifest.json` are automatically registered by the core router. Each entry is a tuple:
+
+```json
+"routes": [
+    ["GET",  "/plugins/my-plugin/ping",  "ping"],
+    ["POST", "/plugins/my-plugin/action","handleAction"],
+    ["GET",  "/admin/my-plugin",         "adminHome", "admin"]
+]
+```
+
+The handler method lives on your entrypoint class:
+
+```php
+use OwnPay\Http\Request;
+use OwnPay\Http\Response;
+
+public function ping(Request $req): Response
+{
+    return Response::json(['ok' => true]);
+}
+
+public function adminHome(Request $req): Response
+{
+    return Response::html('<h1>My Plugin Admin</h1>');
+}
+```
+
+### Adding Admin Menu Items
+
+Declare static sidebar links in `manifest.json`:
+
+```json
+"admin_menu": [
+    { "label": "My Plugin", "url": "/admin/my-plugin" }
+]
+```
+
+For dynamic or conditional menu entries, use the `admin.menu.register` hook:
+
+```php
+$events->addAction('admin.menu.register', function (): void {
+    echo '<a href="/admin/my-plugin/reports" class="op-nav-link"><span>Reports</span></a>';
+});
+```
+
+<Note>
+  Admin menu `url` values must start with `/`. Off-site or `javascript:` URLs are silently dropped by `PluginLoader::registerManifestAdminMenu()`.
+</Note>
+
+## CLI Management Commands
+
+Manage plugins from the command line using `php public/index.php`:
+
+<CodeGroup>
+```bash Enable a Plugin
+php public/index.php plugin:enable my-plugin
+```
+
+```bash Disable a Plugin
+php public/index.php plugin:disable my-plugin
+```
+
+```bash List All Plugins
+php public/index.php plugin:list
+```
+
+```bash Test a Plugin
+php public/index.php plugin:test my-plugin
+```
+
+```bash Debug Logs
+# Enable debug mode in .env
+APP_DEBUG=true
+
+# Stream plugin log output
+tail -f storage/logs/plugins.log
+```
+</CodeGroup>
+
+## Database Migrations
+
+Create `.sql` files in a `migrations/` directory. Files execute in sort order on activation, and are tracked in `op_plugin_migrations`.
+
+```sql
+-- migrations/001_create_my_plugin_logs.sql
+CREATE TABLE IF NOT EXISTS op_plugin_my_plugin_logs (
+    id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    merchant_id INT UNSIGNED    NOT NULL,
+    trx_id      VARCHAR(128)    NOT NULL,
+    payload     JSON            DEFAULT NULL,
+    created_at  DATETIME(6)     NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    INDEX idx_merchant_trx (merchant_id, trx_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+Rollback files follow the naming pattern `001_create_my_plugin_logs.down.sql`.
+
+## Publishing to the Marketplace
+
+Once your plugin is tested and documented, you can submit it to the [OwnPay Plugin Marketplace](https://ownpay.org) for other operators to discover and install.
+
+<Steps>
+  <Step title="Prepare">
+    Ensure your plugin follows the directory structure, includes a complete `manifest.json`, and provides a `README.md` with setup instructions.
+  </Step>
+  <Step title="Test">
+    Run your plugin against multiple OwnPay versions. Test activation, deactivation, and uninstallation. Verify all hooks fire correctly.
+  </Step>
+  <Step title="Package">
+    ZIP the plugin directory. The archive root must contain `manifest.json`. Blocked file extensions (`.phar`, `.sh`, `.bat`, `.exe`, `.dll`) will be rejected during installation.
+  </Step>
+  <Step title="Submit">
+    Open a submission on the marketplace. Include documentation, screenshots, and a changelog.
+  </Step>
+  <Step title="Review">
+    The OwnPay team performs a security review — checking for blocked functions, SQL injection vectors, and proper capability declarations.
+  </Step>
+  <Step title="Publish">
+    After approval, your plugin is listed in the marketplace and discoverable by all OwnPay operators.
+  </Step>
+</Steps>
+
+<Tip>
+  Declare only the capabilities and permissions your plugin actually needs. Over-declared permissions cause the marketplace security review to flag your submission.
+</Tip>

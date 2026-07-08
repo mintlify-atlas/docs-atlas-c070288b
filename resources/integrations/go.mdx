@@ -1,0 +1,482 @@
+---
+title: "Integrate OwnPay with Go Applications"
+sidebarTitle: "Go"
+description: "Full guide to calling the OwnPay REST API from Go using net/http — payment intents, webhook handling, refunds, and idiomatic error types."
+---
+
+Go's standard library `net/http` package is everything you need to integrate with OwnPay. There are no mandatory third-party dependencies: JSON encoding is handled by `encoding/json` and HTTP transport by `net/http`. This guide demonstrates an idiomatic Go client with typed request and response structs, context propagation, proper error handling, payment creation, webhook processing, and refund issuance.
+
+<Info>
+OwnPay has no official Go module at this time. The examples below use only the Go standard library — no external dependencies required.
+</Info>
+
+## Project Setup
+
+Set your credentials as environment variables:
+
+```bash
+export OWNPAY_API_KEY="op.xxxxxxxxxxxxx"
+export OWNPAY_BASE_URL="https://pay.yourbrand.com/api/v1"
+```
+
+---
+
+## Client and Types
+
+```go
+package ownpay
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"time"
+)
+
+// Client holds the HTTP client and credentials.
+type Client struct {
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
+}
+
+// New creates an OwnPay API client from environment variables.
+func New() *Client {
+	return &Client{
+		baseURL: os.Getenv("OWNPAY_BASE_URL"),
+		apiKey:  os.Getenv("OWNPAY_API_KEY"),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+	}
+}
+
+// APIError represents an error response from OwnPay.
+type APIError struct {
+	StatusCode int
+	Message    string
+	Errors     []FieldError
+	RequestID  string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("[%d] %s (request_id=%s)", e.StatusCode, e.Message, e.RequestID)
+}
+
+// FieldError holds a per-field validation error.
+type FieldError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Field   string `json:"field"`
+}
+
+// errResponse is the shape of an OwnPay error JSON body.
+type errResponse struct {
+	Success   bool         `json:"success"`
+	Error     string       `json:"error"`
+	Errors    []FieldError `json:"errors"`
+	RequestID string       `json:"request_id"`
+}
+
+// do executes an HTTP request and decodes the data envelope into dest.
+func (c *Client) do(ctx context.Context, method, path string, body any, dest any) error {
+	var reqBody io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshalling request: %w", err)
+		}
+		reqBody = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Accept",        "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var errResp errResponse
+		_ = json.Unmarshal(respBytes, &errResp)
+		return &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    errResp.Error,
+			Errors:     errResp.Errors,
+			RequestID:  errResp.RequestID,
+		}
+	}
+
+	if dest != nil {
+		// Unwrap the {"success":true,"data":{...}} envelope
+		var envelope struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(respBytes, &envelope); err != nil {
+			return fmt.Errorf("decoding envelope: %w", err)
+		}
+		if err := json.Unmarshal(envelope.Data, dest); err != nil {
+			return fmt.Errorf("decoding data: %w", err)
+		}
+	}
+	return nil
+}
+```
+
+---
+
+## Health Check
+
+```go
+// HealthData is returned by GET /health.
+type HealthData struct {
+	Status  string `json:"status"`
+	Version string `json:"version"`
+	DB      string `json:"db"`
+	Mobile  struct {
+		Connected     bool `json:"connected"`
+		ActiveDevices int  `json:"active_devices"`
+	} `json:"mobile"`
+	Gateways  int    `json:"gateways"`
+	Customers int    `json:"customers"`
+	Time      string `json:"time"`
+}
+
+func (c *Client) Health(ctx context.Context) (*HealthData, error) {
+	var data HealthData
+	if err := c.do(ctx, http.MethodGet, "/health", nil, &data); err != nil {
+		return nil, err
+	}
+	return &data, nil
+}
+
+// Usage
+client := ownpay.New()
+ctx    := context.Background()
+
+health, err := client.Health(ctx)
+if err != nil {
+	log.Fatalf("health check failed: %v", err)
+}
+fmt.Printf("Status: %s  Version: %s  Gateways: %d\n",
+	health.Status, health.Version, health.Gateways)
+```
+
+---
+
+## Creating a Payment Intent
+
+```go
+// CreatePaymentRequest maps to the POST /payments body.
+type CreatePaymentRequest struct {
+	Amount        string         `json:"amount"`
+	Currency      string         `json:"currency"`
+	CallbackURL   string         `json:"callback_url,omitempty"`
+	RedirectURL   string         `json:"redirect_url,omitempty"`
+	CancelURL     string         `json:"cancel_url,omitempty"`
+	CustomerEmail string         `json:"customer_email,omitempty"`
+	CustomerName  string         `json:"customer_name,omitempty"`
+	CustomerPhone string         `json:"customer_phone,omitempty"`
+	Reference     string         `json:"reference,omitempty"`
+	Gateway       string         `json:"gateway,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
+}
+
+// PaymentIntent is the response from POST /payments.
+type PaymentIntent struct {
+	PaymentID   string `json:"payment_id"`
+	Token       string `json:"token"`
+	CheckoutURL string `json:"checkout_url"`
+	Status      string `json:"status"`
+}
+
+func (c *Client) CreatePayment(ctx context.Context, req *CreatePaymentRequest) (*PaymentIntent, error) {
+	var intent PaymentIntent
+	if err := c.do(ctx, http.MethodPost, "/payments", req, &intent); err != nil {
+		return nil, err
+	}
+	return &intent, nil
+}
+
+// Usage
+intent, err := client.CreatePayment(ctx, &ownpay.CreatePaymentRequest{
+	Amount:        "500.00",
+	Currency:      "BDT",
+	Reference:     "INV-10029",
+	CallbackURL:   "https://my-store.com/webhooks/ownpay",
+	RedirectURL:   "https://my-store.com/checkout/success",
+	CancelURL:     "https://my-store.com/checkout/cancel",
+	CustomerEmail: "customer@example.com",
+	CustomerName:  "John Doe",
+	Metadata:      map[string]any{"store_id": "dhaka-branch"},
+})
+if err != nil {
+	log.Fatalf("create payment: %v", err)
+}
+
+fmt.Println("Payment ID  :", intent.PaymentID)
+fmt.Println("Checkout URL:", intent.CheckoutURL)
+// Redirect the user: http.Redirect(w, r, intent.CheckoutURL, http.StatusSeeOther)
+```
+
+---
+
+## Retrieving a Payment
+
+```go
+// Transaction represents a completed or pending payment.
+type Transaction struct {
+	ID             int    `json:"id"`
+	TrxID          string `json:"trx_id"`
+	GatewayTrxID   string `json:"gateway_trx_id"`
+	Amount         string `json:"amount"`
+	Currency       string `json:"currency"`
+	Fee            string `json:"fee"`
+	Status         string `json:"status"`
+	Gateway        string `json:"gateway"`
+	Method         string `json:"method"`
+	Reference      string `json:"reference"`
+	CreatedAt      string `json:"created_at"`
+	CompletedAt    string `json:"completed_at"`
+}
+
+func (c *Client) GetPayment(ctx context.Context, paymentID string) (*Transaction, error) {
+	var txn Transaction
+	if err := c.do(ctx, http.MethodGet, "/payments/"+paymentID, nil, &txn); err != nil {
+		return nil, err
+	}
+	return &txn, nil
+}
+
+// Verify before fulfilling
+txn, err := client.GetPayment(ctx, "a810b445-564a-4e20-80a5-f1261d7b328a")
+if err != nil {
+	log.Fatalf("get payment: %v", err)
+}
+if txn.Status != "completed" {
+	log.Fatalf("payment not completed: %s", txn.Status)
+}
+fmt.Printf("Confirmed: %s  Amount: %s %s\n", txn.TrxID, txn.Amount, txn.Currency)
+```
+
+<Warning>
+Never fulfil an order based solely on the `redirect_url` query parameters. Always verify by calling `GetPayment` or `GetTransaction` server-side.
+</Warning>
+
+---
+
+## Listing Transactions
+
+```go
+// ListTransactionsParams holds query filters for GET /transactions.
+type ListTransactionsParams struct {
+	Page    int
+	PerPage int
+	Status  string
+	Gateway string
+	From    string // YYYY-MM-DD
+	To      string // YYYY-MM-DD
+}
+
+func (c *Client) ListTransactions(ctx context.Context, p ListTransactionsParams) ([]Transaction, error) {
+	path := fmt.Sprintf("/transactions?page=%d&per_page=%d", p.Page, p.PerPage)
+	if p.Status  != "" { path += "&status="  + p.Status }
+	if p.Gateway != "" { path += "&gateway=" + p.Gateway }
+	if p.From    != "" { path += "&from="    + p.From }
+	if p.To      != "" { path += "&to="      + p.To }
+
+	var txns []Transaction
+	if err := c.do(ctx, http.MethodGet, path, nil, &txns); err != nil {
+		return nil, err
+	}
+	return txns, nil
+}
+
+// Usage
+txns, err := client.ListTransactions(ctx, ownpay.ListTransactionsParams{
+	Page:    1,
+	PerPage: 50,
+	Status:  "completed",
+	From:    "2026-06-01",
+	To:      "2026-06-30",
+})
+if err != nil {
+	log.Fatalf("list transactions: %v", err)
+}
+for _, t := range txns {
+	fmt.Printf("  %s  %s %s  %s\n", t.TrxID, t.Amount, t.Currency, t.Status)
+}
+```
+
+---
+
+## Issuing a Refund
+
+```go
+// CreateRefundRequest maps to the POST /refunds body.
+type CreateRefundRequest struct {
+	TrxID         string `json:"trx_id"`
+	TransactionID int    `json:"transaction_id,omitempty"`
+	Amount        string `json:"amount,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+}
+
+// Refund is the response from POST /refunds.
+type Refund struct {
+	ID            int    `json:"id"`
+	UUID          string `json:"uuid"`
+	TransactionID int    `json:"transaction_id"`
+	TrxID         string `json:"trx_id"`
+	GatewayTrxID  string `json:"gateway_trx_id"`
+	Amount        string `json:"amount"`
+	Reason        string `json:"reason"`
+	Status        string `json:"status"`
+	ProcessedAt   string `json:"processed_at"`
+	CreatedAt     string `json:"created_at"`
+}
+
+func (c *Client) CreateRefund(ctx context.Context, req *CreateRefundRequest) (*Refund, error) {
+	var refund Refund
+	if err := c.do(ctx, http.MethodPost, "/refunds", req, &refund); err != nil {
+		return nil, err
+	}
+	return &refund, nil
+}
+
+// Partial refund
+refund, err := client.CreateRefund(ctx, &ownpay.CreateRefundRequest{
+	TrxID:  "OP-481029304",
+	Amount: "150.00",
+	Reason: "Customer requested return",
+})
+if err != nil {
+	log.Fatalf("refund failed: %v", err)
+}
+fmt.Printf("Refund %s — status: %s\n", refund.UUID, refund.Status)
+```
+
+---
+
+## Handling Webhooks
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"net/http"
+)
+
+type webhookPayload struct {
+	Event string `json:"event"`
+	Data  struct {
+		TrxID string `json:"trx_id"`
+	} `json:"data"`
+}
+
+func webhookHandler(client *ownpay.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var payload webhookPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "bad payload", http.StatusBadRequest)
+			return
+		}
+
+		if payload.Event != "payment.completed" {
+			w.WriteHeader(http.StatusOK) // acknowledge unknown events
+			return
+		}
+
+		// Re-verify via API before acting
+		ctx := context.Background()
+		txn, err := client.GetTransaction(ctx, payload.Data.TrxID)
+		if err != nil {
+			log.Printf("webhook: get transaction error: %v", err)
+			http.Error(w, "verification failed", http.StatusBadGateway)
+			return
+		}
+
+		if txn.Status != "completed" {
+			http.Error(w, "not completed", http.StatusBadRequest)
+			return
+		}
+
+		// Fulfil the order
+		log.Printf("webhook: fulfilling order %s", txn.Reference)
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
+	}
+}
+
+func main() {
+	client := ownpay.New()
+	http.HandleFunc("/webhooks/ownpay", webhookHandler(client))
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+
+<Tip>
+For long-running fulfilment work (database writes, emails), launch a goroutine or enqueue to a worker queue and return `200` to OwnPay immediately. Your handler must respond within 10 seconds.
+</Tip>
+
+---
+
+## Error Handling
+
+```go
+_, err := client.CreatePayment(ctx, &ownpay.CreatePaymentRequest{
+	Amount:   "-1",
+	Currency: "BDT",
+})
+
+if err != nil {
+	var apiErr *ownpay.APIError
+	if errors.As(err, &apiErr) {
+		fmt.Printf("API error %d: %s\n", apiErr.StatusCode, apiErr.Message)
+		for _, fe := range apiErr.Errors {
+			fmt.Printf("  Field '%s': %s\n", fe.Field, fe.Message)
+		}
+	} else {
+		fmt.Println("Network or internal error:", err)
+	}
+}
+```
+
+<Accordion title="OwnPay HTTP error codes and recommended Go handling">
+| Status | Meaning | Go action |
+|--------|---------|-----------|
+| `400` | Business rule violation | Surface message to operator |
+| `401` | Invalid API key | Check `OWNPAY_API_KEY` env var |
+| `403` | Insufficient scope | Re-generate key with required scope |
+| `404` | Resource not found | Validate IDs before requesting |
+| `409` | Duplicate customer email | Look up existing customer |
+| `422` | Validation failure | Inspect `Errors` slice |
+| `503` | System degraded | Retry with exponential back-off |
+</Accordion>

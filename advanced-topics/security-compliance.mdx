@@ -1,0 +1,263 @@
+---
+title: "OwnPay Security and Compliance Best Practices"
+sidebarTitle: "Security"
+description: "Security hardening guidance for OwnPay — AES-256-GCM encryption, HMAC webhook verification, RBAC, 2FA, ledger integrity, TLS, backups, and AGPL-3.0 compliance."
+---
+
+OwnPay is built around the assumption that all external input is adversarial. The framework enforces prepared statements, Twig autoescaping, per-request CSRF tokens, SSRF guards, AES-256-GCM encryption at rest, and HMAC-SHA256 webhook signing out of the box. This guide explains what OwnPay provides by default and what you must configure and maintain as the operator of a self-hosted installation.
+
+<Warning>
+  You own the infrastructure, which means security is ultimately your responsibility. OwnPay gives you the tools — this guide explains how to use them correctly.
+</Warning>
+
+## Encryption at Rest
+
+### Customer PII Encryption
+
+All customer personally identifiable information is encrypted before being written to the database:
+
+| Field | Storage |
+|---|---|
+| Name | AES-256-GCM encrypted |
+| Email | AES-256-GCM encrypted + SHA-256 hash for lookup |
+| Phone | AES-256-GCM encrypted + SHA-256 hash for lookup |
+| Gateway API credentials | AES-256-GCM encrypted |
+
+The hash-based lookup approach means OwnPay can find a customer by email or phone without ever decrypting the stored value — lookups are fast and the plaintext never leaves the encrypted field unnecessarily.
+
+<Warning>
+  The `ENCRYPTION_KEY` in your `.env` is generated once during installation and must never be rotated without a coordinated re-encryption of all stored data. Changing `ENCRYPTION_KEY` makes all existing encrypted fields unreadable. Back it up securely.
+</Warning>
+
+### Secrets Management
+
+Never store secrets in code, configuration files tracked by version control, or plaintext on disk:
+
+```bash
+# ✅ Correct — secrets in .env (not committed)
+ENCRYPTION_KEY=base64:...
+JWT_SECRET=...
+DB_PASSWORD=...
+
+# ❌ Wrong — secrets in source code
+define('API_SECRET', 'abc123xyz');
+```
+
+Verify your `.env` is excluded from version control:
+
+```bash
+cat .gitignore | grep .env
+# Should show: .env
+```
+
+The OwnPay release archives never contain `.env`, signing keys, or any secrets — these are generated at install time.
+
+## Webhook Signature Verification
+
+Every outbound webhook is signed with HMAC-SHA256 using the brand's webhook secret. Receiving applications **must verify the signature** before processing any webhook payload.
+
+<CodeGroup>
+
+```php PHP Verification
+<?php
+$rawBody       = file_get_contents('php://input'); // raw bytes — never decode first
+$sigHeader     = $_SERVER['HTTP_X_OWNPAY_SIGNATURE'] ?? '';
+$webhookSecret = getenv('OWNPAY_WEBHOOK_SECRET');
+
+$expected = hash_hmac('sha256', $rawBody, $webhookSecret);
+
+// Timing-safe comparison — prevents timing oracle attacks
+if (!hash_equals($expected, $sigHeader)) {
+    http_response_code(401);
+    exit('Invalid signature');
+}
+
+$event = json_decode($rawBody, true);
+// Process $event...
+```
+
+```javascript Node.js Verification
+const crypto = require('crypto');
+
+function verifyOwnPayWebhook(rawBody, signatureHeader, secret) {
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(rawBody)        // rawBody must be a Buffer, not a string
+    .digest('hex');
+
+  return crypto.timingSafeEqual(
+    Buffer.from(expected,         'utf8'),
+    Buffer.from(signatureHeader,  'utf8'),
+  );
+}
+```
+
+</CodeGroup>
+
+<Note>
+  Always pass the **raw request bytes** to the HMAC function. Decoding JSON and re-encoding it changes whitespace and produces a different signature. In Express, use `express.raw({ type: 'application/json' })` to capture the raw body before any middleware parses it.
+</Note>
+
+## API Key Scopes and Minimum Privilege
+
+OwnPay API keys carry one of three scopes. Assign the minimum scope required for each integration:
+
+| Scope | Permitted Operations | Use For |
+|---|---|---|
+| `read` | GET endpoints — list transactions, customers, reports | Dashboards, reporting scripts |
+| `write` | POST/PUT/PATCH — create payments, issue refunds, manage customers | E-commerce backend, billing systems |
+| `admin` | Admin API (`/api/admin/v1/*`) — system settings, key generation | Internal ops tooling only |
+
+Best practices for API key management:
+
+- Create **separate keys** for each application or integration — never share a key between systems
+- Use `read` scope whenever write access is not required
+- Rotate keys **quarterly** or immediately after a suspected compromise
+- Store keys in environment variables or a secrets manager, never in source code
+- Keys are shown in plaintext **only once** upon creation — store them immediately
+
+```bash
+# ✅ Correct — key from environment variable
+$apiKey = getenv('OWNPAY_API_KEY');
+
+# ❌ Wrong — key hardcoded
+$apiKey = 'op.live.xxxxxxxxxxxxx';
+```
+
+## Two-Factor Authentication
+
+Enable TOTP two-factor authentication for every admin and staff account that has access to financial data.
+
+<Steps>
+  <Step title="Enable 2FA">
+    Go to **Account → Security → Enable Two-Factor Authentication**.
+  </Step>
+  <Step title="Scan QR Code">
+    Scan the QR code with any RFC 6238-compatible authenticator app (Google Authenticator, Authy, 1Password, Bitwarden).
+  </Step>
+  <Step title="Verify and Save Backup Codes">
+    Enter the 6-digit code to confirm setup. **Save the backup codes** in a password manager — they are the only recovery path if your authenticator device is lost.
+  </Step>
+</Steps>
+
+<Warning>
+  `TwoFactorMiddleware` enforces 2FA at the framework level with the comment: *"2FA enforcement must NEVER be overridable by plugins."* There is no plugin hook to bypass 2FA. The only reset path for a locked-out account is direct database access by the super-admin.
+</Warning>
+
+## Double-Entry Ledger Integrity
+
+The ledger is the source of financial truth. These rules must never be violated:
+
+- **Never write directly to `op_ledger_entries`** — all posts must go through `LedgerService::postEntries()`, which validates balanced journals using `bccomp()` at four-decimal precision
+- **Never modify posted entries** — the ledger is append-only; corrections are made by posting reversals
+- **`BalanceVerificationJob` alerts** must be investigated immediately — a mismatch means a transaction completed without a corresponding ledger post
+- **bcmath only** — all financial arithmetic must use bcmath string operations. Floats are prohibited in any money calculation
+
+```php
+// ✅ Correct — bcmath string arithmetic
+$net = bcsub($amount, $fee, 2);
+
+// ❌ Wrong — floating-point loss corrupts the ledger
+$net = $amount - $fee;
+```
+
+## HTTPS and TLS Requirements
+
+OwnPay enforces HTTPS at the application level:
+
+- `SecurityHeadersMiddleware` adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` on all HTTPS responses
+- `X-Frame-Options: DENY` prevents clickjacking on all pages
+- `X-Content-Type-Options: nosniff` prevents MIME-type sniffing attacks
+- `Content-Security-Policy` with a per-request nonce blocks unauthorized inline scripts
+
+Your infrastructure must:
+- Terminate TLS with a valid certificate (Let's Encrypt works for custom domains)
+- Redirect all HTTP to HTTPS at the web server (Nginx/Apache) level
+- Use TLS 1.2 or higher; disable TLS 1.0 and 1.1
+
+```nginx
+# Nginx: redirect HTTP to HTTPS
+server {
+    listen 80;
+    server_name pay.yourbrand.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+## Regular Backups
+
+OwnPay does not manage your backups — you must configure this independently.
+
+**Database backup:**
+
+```bash
+# Daily mysqldump
+mysqldump -u YOUR_USER -p YOUR_DB > backup_$(date +%Y%m%d_%H%M).sql
+gzip backup_$(date +%Y%m%d_%H%M).sql
+
+# Docker environment
+docker exec ownpay_db sh -c \
+  'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" ownpay' \
+  > backup_$(date +%Y%m%d).sql
+```
+
+**Critical files to back up alongside the database:**
+- `.env` — contains `APP_KEY`, `ENCRYPTION_KEY`, and `JWT_SECRET`
+- `storage/` — logs, cache, queue, and session data
+- `modules/` — any custom gateway or addon plugins
+
+**Backup verification:** Test restoration monthly. A backup you've never restored is not a backup.
+
+## Security Hardening Checklist
+
+<Accordion title="Minimum Security (All Deployments)">
+  - [ ] HTTPS with a valid TLS certificate on all domains
+  - [ ] `APP_DEBUG=false` in production `.env`
+  - [ ] Strong, unique admin password (12+ characters, mixed case, numbers, symbols)
+  - [ ] OwnPay kept up to date — apply security patches immediately
+  - [ ] Daily encrypted database backups stored offsite
+  - [ ] `storage/`, `.env`, and `vendor/` not accessible via web server
+</Accordion>
+
+<Accordion title="Standard Security (Recommended for All)">
+  - [ ] Everything in Minimum, plus:
+  - [ ] TOTP 2FA enabled for all admin and staff accounts
+  - [ ] API keys scoped to minimum privilege; separate key per integration
+  - [ ] Webhook signature verification implemented on all receiving endpoints
+  - [ ] IP allowlist configured for admin routes if your team has fixed IPs
+  - [ ] Audit log review weekly for suspicious activity
+  - [ ] API keys rotated quarterly
+  - [ ] `CACHE_DRIVER=redis` and `QUEUE_DRIVER=redis` (reduces attack surface vs. file-based)
+</Accordion>
+
+<Accordion title="High Security (Regulated Industries / Large Transaction Volumes)">
+  - [ ] Everything in Standard, plus:
+  - [ ] Hardware security key for admin 2FA (FIDO2/WebAuthn)
+  - [ ] Web Application Firewall (WAF) in front of the server
+  - [ ] Intrusion detection system (IDS/IPS)
+  - [ ] Real-time log monitoring and alerting
+  - [ ] Annual penetration testing by an independent party
+  - [ ] Quarterly vulnerability scans
+  - [ ] Network segmentation (database server not publicly accessible)
+  - [ ] Dedicated security review before major updates
+</Accordion>
+
+## Audit Log Integrity
+
+Every admin action is logged in `op_audit_log` with actor, entity, old/new values, IP address, and timestamp. Each entry is **cryptographically signed** — a tampered entry can be detected by running the integrity scan from **Admin → Reports → Audit Log → Verify Integrity**.
+
+- Audit logs must be retained for compliance (minimum 1 year for financial records; check your jurisdiction)
+- Periodically archive old entries rather than deleting them
+- The `LogSanitizer` strips passwords, tokens, and card data from all log output — verify that any custom logging you add does the same
+
+## AGPL-3.0 License Compliance
+
+If you run a modified OwnPay installation as a network service accessible to users other than yourself or your organization, the AGPL-3.0 requires that you make your modifications available under the same license. Key points:
+
+- Running OwnPay privately for your own business: no special obligations
+- Distributing OwnPay as part of a product: include the full AGPL-3.0 license text
+- Running a modified version as a public SaaS: source of modifications must be available to users
+
+Contributions to OwnPay are licensed inbound = outbound (AGPL-3.0). DCO sign-off on commits is how contributors certify this. No CLA is required.
+
+Questions about compliance? Contact [ping@ownpay.org](mailto:ping@ownpay.org).

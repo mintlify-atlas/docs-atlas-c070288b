@@ -1,0 +1,171 @@
+---
+title: "Plugin Manager: Install & Manage OwnPay Extensions"
+sidebarTitle: "Plugins"
+description: "Install, activate, deactivate, and manage gateway, addon, and theme plugins that extend your OwnPay platform's capabilities."
+---
+
+The Plugins manager is the central hub for extending OwnPay beyond its core functionality. Every payment processor connector, utility addon, and checkout theme is packaged as a plugin and managed from this single screen. OwnPay ships with over 123 bundled gateway plugins covering global, regional, and crypto payment networks — all toggled on or off without touching a single configuration file.
+
+<Info>
+  Plugins run under a secure sandbox (`PluginSandbox`) that scans PHP files at load time and blocks dangerous functions such as `eval`, `exec`, `shell_exec`, `system`, `passthru`, `popen`, and `proc_open`. Always source plugins from trusted publishers.
+</Info>
+
+## Accessing the Plugin Manager
+
+<Steps>
+  <Step title="Log in as Super-Administrator">
+    Sign in to the OwnPay admin dashboard with your super-administrator credentials.
+  </Step>
+  <Step title="Open Plugins">
+    In the left sidebar under the **SYSTEM** section, click **Plugins**.
+  </Step>
+</Steps>
+
+---
+
+## Plugin Categories
+
+The Plugins manager organizes extensions into filterable tabs:
+
+<CardGroup cols={2}>
+  <Card title="Gateways" icon="credit-card">
+    Payment processor connectors such as Stripe, SSLCommerz, bKash API, Nagad, Razorpay, Flutterwave, and 117 more. Activating a gateway makes it available in the Payment Gateways configuration list.
+  </Card>
+  <Card title="Addons" icon="puzzle-piece">
+    Backend utility integrations: `mail-gateway` for transactional email, `sms-gateway` for SMS notifications, and `telegram-bot` for real-time payment alerts.
+  </Card>
+  <Card title="Themes" icon="paintbrush">
+    Visual checkout template packages that change the layout, animations, and styling of customer-facing checkout pages.
+  </Card>
+  <Card title="Trash" icon="trash">
+    Plugins that have been uninstalled and are queued for permanent deletion from the server filesystem.
+  </Card>
+</CardGroup>
+
+---
+
+## Plugin Card Overview
+
+Each plugin is presented as a profile card displaying:
+
+- **Branding Icon** — the visual logo of the extension
+- **Name & Type Tag** — display name and type badge (Gateway / Addon / Theme)
+- **Version & Description** — package version number and a brief feature summary
+- **Status Controls** — **Install & Activate** button for inactive plugins, or **Deactivate** for active ones
+- **Status Indicator** — color-coded badge showing `Active`, `Inactive`, or `Not Installed`
+
+---
+
+## Installing and Activating a Plugin
+
+<Steps>
+  <Step title="Browse or Search">
+    Use the **Search** textbox or the **Status** dropdown to locate the plugin you want to enable (e.g., **Telegram Bot**).
+  </Step>
+  <Step title="Install & Activate">
+    Click the **Install & Activate** button on the plugin card.
+  </Step>
+  <Step title="Automatic Setup">
+    OwnPay extracts the package, runs any included database migrations, and updates the plugin's status. Gateway plugins immediately appear in the **Payment Gateways** list for credential configuration.
+  </Step>
+</Steps>
+
+---
+
+## Uploading a Custom Plugin
+
+Developers can upload custom-built or third-party plugins as `.zip` archives directly from the admin panel.
+
+<Steps>
+  <Step title="Open the Upload Wizard">
+    Click the **Upload Plugin** link in the Plugins page header.
+  </Step>
+  <Step title="Select the Archive">
+    Choose a valid `.zip` plugin package from your local machine. The archive must contain a `manifest.json` at the root with a matching `slug` field.
+  </Step>
+  <Step title="Upload and Activate">
+    Submit the form. OwnPay extracts the files, validates the manifest schema, and lists the new plugin in the appropriate category tab.
+  </Step>
+</Steps>
+
+<Warning>
+  Never upload `.zip` archives from untrusted sources. Plugins run with administrative system permissions and have access to the database and filesystem. Only install plugins from publishers you trust.
+</Warning>
+
+---
+
+## CLI Plugin Management
+
+For server administrators who prefer the command line, OwnPay provides dedicated CLI commands for managing plugins without accessing the admin panel.
+
+**List all installed plugins and their status:**
+```bash
+php public/index.php plugin:list
+```
+
+**Enable (activate) a plugin by its slug:**
+```bash
+php public/index.php plugin:enable <plugin-slug>
+```
+
+**Disable (deactivate) a plugin by its slug:**
+```bash
+php public/index.php plugin:disable <plugin-slug>
+```
+
+<Note>
+  The plugin `slug` must match the `slug` field in the plugin's `manifest.json` and the filesystem folder name exactly. Renaming plugin directories via FTP or a file manager will break database manifest lookups.
+</Note>
+
+---
+
+## Plugin Sandbox & Security
+
+OwnPay enforces the following security constraints on all plugins:
+
+<Accordion title="Manifest slug validation">
+  The `slug` value in `manifest.json` must match the plugin's filesystem folder name exactly. Mismatches prevent the plugin from loading and produce a manifest validation error in the admin panel.
+</Accordion>
+
+<Accordion title="Dynamic logo resolution">
+  Plugin logos are copied from the `modules/` directory to `public/assets/img/gateways/` on demand using `PluginManager::resolveIconPath()`. Only image file extensions are accepted — non-image extensions are rejected automatically.
+</Accordion>
+
+<Accordion title="PSR-4 namespace isolation">
+  Each plugin registers its own PSR-4 autoloader, realpath-contained to its plugin directory, preventing namespace collisions between plugins.
+</Accordion>
+
+---
+
+## Best Practices
+
+<Accordion title="Keep unused plugins deactivated">
+  Deactivate any gateway or addon plugins you are not actively using. Inactive plugins do not load at runtime, which reduces memory overhead and speeds up each request cycle.
+</Accordion>
+
+<Accordion title="Check version compatibility before uploading">
+  Review the version and compatibility notes in the plugin manifest description before uploading manual updates. Incompatible migrations can alter database schema in unexpected ways.
+</Accordion>
+
+<Accordion title="Never rename plugin directories via FTP">
+  Plugin folder names must remain identical to their manifest slugs. Renaming them via FTP or a file manager causes database lookups to fail and can leave the plugin in an unrecoverable broken state.
+</Accordion>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Addons" icon="puzzle-piece" href="/user-guide/system/addons">
+    Manage mail, SMS, and Telegram notification addon plugins.
+  </Card>
+  <Card title="Themes" icon="paintbrush" href="/user-guide/appearance/themes">
+    Activate and manage checkout visual theme plugins.
+  </Card>
+  <Card title="Payment Gateways" icon="credit-card" href="/user-guide/gateways/gateways">
+    Configure API credentials for activated gateway plugins.
+  </Card>
+  <Card title="System Update" icon="arrow-up-to-line" href="/user-guide/system/system-update">
+    Upload and apply core platform updates.
+  </Card>
+</CardGroup>

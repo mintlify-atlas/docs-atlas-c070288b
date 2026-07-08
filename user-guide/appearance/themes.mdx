@@ -1,0 +1,153 @@
+---
+title: "Themes: Manage Checkout Visual Templates in OwnPay"
+sidebarTitle: "Themes"
+description: "Activate checkout theme plugins, upload custom theme packages, and control the visual layout of customer-facing payment and checkout pages."
+---
+
+The Themes manager controls the HTML and CSS template envelopes that render every customer-facing checkout page in OwnPay. Themes determine the layout, typography, animation style, and input field patterns that customers interact with when they visit a `/checkout/{token}` or `/pay/{slug}` URL. OwnPay supports modular theme plugins, meaning the visual layer is fully swappable without touching gateway logic or brand configuration. A default theme — `own-pay` — is bundled with the platform and serves as the production-ready fallback.
+
+<Info>
+  The active theme identifier is stored in the `op_system_settings` database table as `active_theme`. Visual assets such as logos, favicons, and brand colors configured under **Branding Settings** or per-brand contexts are injected into Twig templates at render time, regardless of which theme is active.
+</Info>
+
+## Accessing the Themes Manager
+
+<Steps>
+  <Step title="Log in to the Admin Panel">
+    Sign in to the OwnPay admin dashboard with your administrator credentials.
+  </Step>
+  <Step title="Open Themes">
+    In the left sidebar under the **APPEARANCE** section, click **Themes**.
+  </Step>
+</Steps>
+
+---
+
+## Theme Card Overview
+
+Each installed theme is displayed as a card containing:
+
+<CardGroup cols={2}>
+  <Card title="Theme Name" icon="paintbrush">
+    The display title of the theme (e.g. `Own Pay Theme`). The currently active theme is visually distinguished with an `Active` badge.
+  </Card>
+  <Card title="Version & Author" icon="user">
+    The package version and developer credit string (e.g. `v2.0.0 – Own Pay`).
+  </Card>
+  <Card title="Description" icon="align-left">
+    A summary of the theme's features, such as whether it supports responsive layouts, multi-gateway tabs, or custom animations.
+  </Card>
+  <Card title="Controls" icon="sliders">
+    **Activate** makes the theme the global active checkout template. **Remove** permanently deletes the theme files from the server.
+  </Card>
+</CardGroup>
+
+---
+
+## Activating a Theme
+
+<Steps>
+  <Step title="Locate the Target Theme">
+    Browse the theme cards on the Themes dashboard and find the theme you want to apply.
+  </Step>
+  <Step title="Click Activate">
+    Click the **Activate** button on the target theme card.
+  </Step>
+  <Step title="Instant Application">
+    OwnPay updates the `active_theme` setting immediately. Any checkout sessions initiated after this point will load the new theme layout. There is no need to clear caches manually.
+  </Step>
+</Steps>
+
+<Warning>
+  Do not delete an active theme. Always activate an alternative theme first, then remove the old one. Deleting the active theme without a fallback will cause checkout pages to render without a template, resulting in a broken customer experience.
+</Warning>
+
+---
+
+## Installing a Custom Theme
+
+Custom or third-party theme packages can be uploaded as `.zip` archives directly from the admin panel.
+
+<Steps>
+  <Step title="Click Install Theme">
+    In the Themes page header, click the **+ Install Theme** link.
+  </Step>
+  <Step title="Select the Archive">
+    Choose the `.zip` theme package from your local machine. The archive must contain a valid `manifest.json` with `"type": "theme"` and a unique `slug` field.
+  </Step>
+  <Step title="Upload">
+    Submit the upload form. OwnPay extracts the files, validates the manifest, and adds the new theme to the Themes dashboard.
+  </Step>
+  <Step title="Activate">
+    Click **Activate** on the newly installed theme card to apply it.
+  </Step>
+</Steps>
+
+<Warning>
+  Never upload unverified theme archives. Like all plugins, themes execute server-side Twig templates and hook into the OwnPay filter system via `checkout.head` and `checkout.footer` events. Only install themes from publishers you trust.
+</Warning>
+
+---
+
+## Per-Brand Theme Selection
+
+OwnPay's `BrandThemeService` injects per-brand visual identity fields — including `logo`, `favicon`, `color`, `accent_color`, `support_email`, `custom_css`, `custom_js`, and `footer_text` — directly into the active theme's Twig templates at render time. This means:
+
+- A single global theme can render differently for each brand based on their configured colors and assets.
+- Per-brand CSS injection (custom styles entered in a brand's settings) is applied on top of the theme styles via the `checkout.head` filter hook.
+- Custom JavaScript injected via a brand's `custom_js` setting fires through the `checkout.footer` filter hook.
+
+<Note>
+  Full per-brand theme overrides (applying a completely different theme template to one brand vs. another) are not a feature of the global Themes manager. All brands share the same active global theme template, differentiated only by their brand-scoped color, logo, and CSS injection settings.
+</Note>
+
+---
+
+## The Default `own-pay` Theme
+
+The bundled `own-pay` theme (manifest slug: `own-pay`) is OwnPay's default production-ready checkout theme. It features:
+
+- A responsive double-panel desktop layout with a stacked mobile flow
+- Multi-gateway tab grouping (Mobile Banking, Cards, Internet Banking, Manual)
+- Support for gateway logo grids and express checkout button areas
+- Full CSS custom property support for per-brand primary and accent colors
+- Session countdown timer integration
+
+<Tip>
+  Keep the `own-pay` default theme installed at all times as a fallback. Even if you activate a custom theme, having the default available ensures you can instantly revert if a custom theme has rendering issues.
+</Tip>
+
+---
+
+## Best Practices
+
+<Accordion title="Test themes on mobile devices">
+  A large proportion of payment transactions occur on mobile devices. Test any new theme on both small-screen smartphones and tablets to ensure payment input fields, gateway selection tabs, and the submission button remain fully accessible and usable.
+</Accordion>
+
+<Accordion title="Keep the default theme as a fallback">
+  Always maintain the bundled `own-pay` theme on the server. If a custom theme is removed or becomes corrupted, the system has no template to fall back to and checkout pages will break. The default theme is a reliable recovery baseline.
+</Accordion>
+
+<Accordion title="Validate uploaded theme archives">
+  Before uploading a theme `.zip`, verify with the publisher that the manifest slug is unique and that all Twig templates use the approved `checkout.head` and `checkout.footer` filter hooks rather than directly modifying core template files.
+</Accordion>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Branding Settings" icon="palette" href="/user-guide/appearance/branding-settings">
+    Upload logos, favicons, and configure brand colors injected into all themes.
+  </Card>
+  <Card title="Landing Page" icon="house" href="/user-guide/appearance/landing-page">
+    Configure the public marketing home page content separately from checkout themes.
+  </Card>
+  <Card title="Plugins" icon="plug" href="/user-guide/system/plugins">
+    Install theme plugins via the central plugin manager.
+  </Card>
+  <Card title="Public Checkout" icon="cart-shopping" href="/user-guide/public/checkout">
+    Understand the customer checkout experience rendered by the active theme.
+  </Card>
+</CardGroup>

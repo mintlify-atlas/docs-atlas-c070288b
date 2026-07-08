@@ -1,0 +1,394 @@
+---
+title: "Integrate OwnPay with .NET and C# Applications"
+sidebarTitle: ".NET / C#"
+description: "Full guide to calling the OwnPay REST API from .NET and C# using HttpClient — payment intents, webhooks, refunds, and typed error handling."
+---
+
+.NET's `HttpClient` combined with `System.Text.Json` (built into .NET 6+) gives you a clean, allocation-efficient foundation for integrating with OwnPay's REST API. This guide covers creating a reusable, typed C# client, initiating payment intents, verifying outcomes, processing webhooks in ASP.NET Core, issuing refunds, and managing customer profiles — with idiomatic C# patterns including record types, nullable annotations, and `async`/`await` throughout.
+
+<Info>
+OwnPay has no official NuGet package at this time. All integration is done over HTTP using `System.Net.Http.HttpClient` and `System.Text.Json`. The examples target .NET 6 or later.
+</Info>
+
+## Configuration
+
+Add your credentials to `appsettings.json` and read them through the options pattern, or inject them via environment variables:
+
+```bash
+export OWNPAY_API_KEY="op.xxxxxxxxxxxxx"
+export OWNPAY_BASE_URL="https://pay.yourbrand.com/api/v1"
+```
+
+```json
+{
+  "OwnPay": {
+    "BaseUrl": "https://pay.yourbrand.com/api/v1",
+    "ApiKey": "op.xxxxxxxxxxxxx"
+  }
+}
+```
+
+---
+
+## Models
+
+```csharp
+// Models/OwnPayModels.cs
+using System.Text.Json.Serialization;
+
+namespace MyApp.OwnPay;
+
+public record CreatePaymentRequest(
+    [property: JsonPropertyName("amount")]         string Amount,
+    [property: JsonPropertyName("currency")]       string Currency,
+    [property: JsonPropertyName("callback_url")]   string? CallbackUrl   = null,
+    [property: JsonPropertyName("redirect_url")]   string? RedirectUrl   = null,
+    [property: JsonPropertyName("cancel_url")]     string? CancelUrl     = null,
+    [property: JsonPropertyName("customer_email")] string? CustomerEmail = null,
+    [property: JsonPropertyName("customer_name")]  string? CustomerName  = null,
+    [property: JsonPropertyName("customer_phone")] string? CustomerPhone = null,
+    [property: JsonPropertyName("reference")]      string? Reference     = null,
+    [property: JsonPropertyName("gateway")]        string? Gateway       = null,
+    [property: JsonPropertyName("metadata")]       Dictionary<string, object>? Metadata = null
+);
+
+public record PaymentIntent(
+    [property: JsonPropertyName("payment_id")]   string PaymentId,
+    [property: JsonPropertyName("token")]        string Token,
+    [property: JsonPropertyName("checkout_url")] string CheckoutUrl,
+    [property: JsonPropertyName("status")]       string Status
+);
+
+public record Transaction(
+    [property: JsonPropertyName("id")]              int?    Id,
+    [property: JsonPropertyName("trx_id")]          string? TrxId,
+    [property: JsonPropertyName("gateway_trx_id")]  string? GatewayTrxId,
+    [property: JsonPropertyName("amount")]          string  Amount,
+    [property: JsonPropertyName("currency")]        string  Currency,
+    [property: JsonPropertyName("fee")]             string? Fee,
+    [property: JsonPropertyName("net_amount")]      string? NetAmount,
+    [property: JsonPropertyName("status")]          string  Status,
+    [property: JsonPropertyName("gateway")]         string? Gateway,
+    [property: JsonPropertyName("method")]          string? Method,
+    [property: JsonPropertyName("reference")]       string? Reference,
+    [property: JsonPropertyName("created_at")]      string  CreatedAt,
+    [property: JsonPropertyName("completed_at")]    string? CompletedAt
+);
+
+public record CreateRefundRequest(
+    [property: JsonPropertyName("trx_id")]         string  TrxId,
+    [property: JsonPropertyName("transaction_id")] int?    TransactionId = null,
+    [property: JsonPropertyName("amount")]         string? Amount        = null,
+    [property: JsonPropertyName("reason")]         string? Reason        = null
+);
+
+public record Refund(
+    [property: JsonPropertyName("id")]             int    Id,
+    [property: JsonPropertyName("uuid")]           string Uuid,
+    [property: JsonPropertyName("transaction_id")] int    TransactionId,
+    [property: JsonPropertyName("trx_id")]         string TrxId,
+    [property: JsonPropertyName("gateway_trx_id")] string GatewayTrxId,
+    [property: JsonPropertyName("amount")]         string Amount,
+    [property: JsonPropertyName("reason")]         string Reason,
+    [property: JsonPropertyName("status")]         string Status,
+    [property: JsonPropertyName("processed_at")]   string ProcessedAt,
+    [property: JsonPropertyName("created_at")]     string CreatedAt
+);
+
+public record FieldError(
+    [property: JsonPropertyName("code")]    string Code,
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("field")]   string Field
+);
+```
+
+---
+
+## Custom Exception
+
+```csharp
+// OwnPayException.cs
+namespace MyApp.OwnPay;
+
+public class OwnPayException : Exception
+{
+    public int         StatusCode  { get; }
+    public FieldError[]  Errors    { get; }
+    public string      RequestId   { get; }
+
+    public OwnPayException(
+        int statusCode,
+        string message,
+        FieldError[] errors,
+        string requestId)
+        : base($"[{statusCode}] {message} (request_id={requestId})")
+    {
+        StatusCode = statusCode;
+        Errors     = errors;
+        RequestId  = requestId;
+    }
+}
+```
+
+---
+
+## Client
+
+```csharp
+// OwnPayClient.cs
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace MyApp.OwnPay;
+
+public class OwnPayClient
+{
+    private readonly HttpClient _http;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    public OwnPayClient(HttpClient http) => _http = http;
+
+    private async Task<T> SendAsync<T>(
+        HttpMethod method,
+        string path,
+        object? body = null,
+        CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(method, path);
+
+        if (body is not null)
+            request.Content = JsonContent.Create(body, options: JsonOptions);
+
+        using var resp = await _http.SendAsync(request, ct);
+        var json      = await resp.Content.ReadAsStringAsync(ct);
+        var root      = JsonNode.Parse(json);
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            var error     = root?["error"]?.GetValue<string>()     ?? $"HTTP {(int)resp.StatusCode}";
+            var requestId = root?["request_id"]?.GetValue<string>() ?? string.Empty;
+            var errors    = root?["errors"]?.Deserialize<FieldError[]>(JsonOptions) ?? [];
+
+            throw new OwnPayException((int)resp.StatusCode, error, errors, requestId);
+        }
+
+        var data = root?["data"]?.ToJsonString()
+            ?? throw new InvalidOperationException("Missing data in response");
+
+        return JsonSerializer.Deserialize<T>(data, JsonOptions)
+            ?? throw new InvalidOperationException("Failed to deserialise response data");
+    }
+
+    public Task<JsonNode?> HealthAsync(CancellationToken ct = default)
+        => SendAsync<JsonNode?>(HttpMethod.Get, "/health", ct: ct);
+
+    public Task<PaymentIntent> CreatePaymentAsync(
+        CreatePaymentRequest req, CancellationToken ct = default)
+        => SendAsync<PaymentIntent>(HttpMethod.Post, "/payments", req, ct);
+
+    public Task<Transaction> GetPaymentAsync(
+        string paymentId, CancellationToken ct = default)
+        => SendAsync<Transaction>(HttpMethod.Get, $"/payments/{paymentId}", ct: ct);
+
+    public Task<Transaction[]> ListTransactionsAsync(
+        string? status  = null,
+        string? gateway = null,
+        string? from    = null,
+        string? to      = null,
+        int     page    = 1,
+        int     perPage = 25,
+        CancellationToken ct = default)
+    {
+        var qs = new List<string> { $"page={page}", $"per_page={perPage}" };
+        if (status  is not null) qs.Add($"status={status}");
+        if (gateway is not null) qs.Add($"gateway={gateway}");
+        if (from    is not null) qs.Add($"from={from}");
+        if (to      is not null) qs.Add($"to={to}");
+        return SendAsync<Transaction[]>(HttpMethod.Get, $"/transactions?{string.Join("&", qs)}", ct: ct);
+    }
+
+    public Task<Transaction> GetTransactionAsync(
+        string trxId, CancellationToken ct = default)
+        => SendAsync<Transaction>(HttpMethod.Get, $"/transactions/{trxId}", ct: ct);
+
+    public Task<Refund> CreateRefundAsync(
+        CreateRefundRequest req, CancellationToken ct = default)
+        => SendAsync<Refund>(HttpMethod.Post, "/refunds", req, ct);
+}
+```
+
+---
+
+## Registration (ASP.NET Core)
+
+```csharp
+// Program.cs
+builder.Services.AddHttpClient<OwnPayClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["OwnPay:BaseUrl"]!);
+    client.DefaultRequestHeaders.Add(
+        "Authorization",
+        $"Bearer {builder.Configuration["OwnPay:ApiKey"]}");
+    client.DefaultRequestHeaders.Add("Accept", "application/json");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+```
+
+---
+
+## Creating a Payment Intent
+
+```csharp
+// In your controller or service
+public class CheckoutService(OwnPayClient ownPay)
+{
+    public async Task<string> StartCheckoutAsync(string orderId, string customerEmail)
+    {
+        var intent = await ownPay.CreatePaymentAsync(new CreatePaymentRequest(
+            Amount:        "500.00",
+            Currency:      "BDT",
+            Reference:     orderId,
+            CallbackUrl:   "https://my-store.com/webhooks/ownpay",
+            RedirectUrl:   "https://my-store.com/checkout/success",
+            CancelUrl:     "https://my-store.com/checkout/cancel",
+            CustomerEmail: customerEmail,
+            CustomerName:  "John Doe"
+        ));
+
+        // Store intent.PaymentId in user session for verification on return
+        return intent.CheckoutUrl; // Redirect the user here
+    }
+}
+```
+
+---
+
+## Verifying a Payment
+
+```csharp
+public async Task<IActionResult> ReturnAsync(
+    [FromQuery] string paymentId,
+    CancellationToken ct)
+{
+    var payment = await _ownPay.GetPaymentAsync(paymentId, ct);
+
+    if (payment.Status != "completed")
+        return BadRequest($"Payment not completed: {payment.Status}");
+
+    // Fulfil the order
+    _logger.LogInformation("Order confirmed: {TrxId}", payment.TrxId);
+    return RedirectToAction("Success");
+}
+```
+
+<Warning>
+Do not trust query parameters on your `redirect_url`. Always call `GetPaymentAsync` from your server before fulfilling orders.
+</Warning>
+
+---
+
+## Issuing a Refund
+
+```csharp
+var refund = await _ownPay.CreateRefundAsync(new CreateRefundRequest(
+    TrxId:  "OP-481029304",
+    Amount: "150.00",
+    Reason: "Customer requested return"
+));
+
+Console.WriteLine($"Refund {refund.Uuid} — {refund.Status}");
+```
+
+---
+
+## Handling Webhooks (ASP.NET Core)
+
+```csharp
+// Controllers/WebhooksController.cs
+using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Nodes;
+
+[ApiController]
+[Route("webhooks")]
+public class WebhooksController(OwnPayClient ownPay, ILogger<WebhooksController> logger)
+    : ControllerBase
+{
+    [HttpPost("ownpay")]
+    public async Task<IActionResult> OwnPay(
+        [FromBody] JsonNode payload,
+        CancellationToken ct)
+    {
+        var eventType = payload["event"]?.GetValue<string>();
+
+        if (eventType != "payment.completed")
+            return BadRequest(new { ok = false, reason = "unrecognised event" });
+
+        var trxId = payload["data"]?["trx_id"]?.GetValue<string>();
+        if (trxId is null)
+            return BadRequest(new { ok = false, reason = "missing trx_id" });
+
+        try
+        {
+            // Re-verify before acting
+            var transaction = await ownPay.GetTransactionAsync(trxId, ct);
+
+            if (transaction.Status != "completed")
+                return BadRequest(new { ok = false, reason = "not completed" });
+
+            logger.LogInformation("Fulfilling order: {Reference}", transaction.Reference);
+            // await _orderService.FulfillAsync(transaction.Reference, ct);
+
+            return Ok(new { ok = true });
+        }
+        catch (OwnPayException ex)
+        {
+            logger.LogError("OwnPay error {Status}: {Message}", ex.StatusCode, ex.Message);
+            return StatusCode(ex.StatusCode, new { ok = false });
+        }
+    }
+}
+```
+
+<Tip>
+Return `200 OK` immediately and defer heavy processing to a background task (`IBackgroundTaskQueue`, Hangfire, Azure Service Bus, etc.). OwnPay expects a response within **10 seconds**.
+</Tip>
+
+---
+
+## Error Handling
+
+```csharp
+try
+{
+    var intent = await _ownPay.CreatePaymentAsync(
+        new CreatePaymentRequest(Amount: "-1", Currency: "BDT"));
+}
+catch (OwnPayException ex)
+{
+    Console.WriteLine($"API error {ex.StatusCode}: {ex.Message}");
+
+    foreach (var fe in ex.Errors)
+        Console.WriteLine($"  Field '{fe.Field}': {fe.Message}");
+}
+catch (HttpRequestException ex)
+{
+    Console.WriteLine($"Network error: {ex.Message}");
+}
+```
+
+<Accordion title="OwnPay HTTP error codes and .NET handling strategy">
+| Status | Meaning | .NET action |
+|--------|---------|-------------|
+| `400` | Business rule violation | Render error to operator |
+| `401` | Invalid or missing API key | Check `OwnPay:ApiKey` config |
+| `403` | Insufficient scope | Regenerate key with required scopes |
+| `404` | Resource not found | Validate IDs before requesting |
+| `409` | Duplicate customer email | Look up existing customer instead |
+| `422` | Validation failure | Inspect `Errors` array |
+| `503` | System degraded | Retry with `Polly` exponential back-off |
+</Accordion>

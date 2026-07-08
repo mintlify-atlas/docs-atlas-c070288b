@@ -1,0 +1,156 @@
+---
+title: "Creating and Sharing Payment Links in OwnPay"
+sidebarTitle: "Payment Links"
+description: "Generate shareable checkout URLs with fixed or custom amounts, expiry dates, and usage limits — ideal for quick collections without a formal invoice."
+---
+
+Payment links are reusable checkout URLs that let you collect payments from customers without the overhead of creating a formal invoice. You can fix the price for a specific product (e.g. `Hosting Setup Fee — 2,500 BDT`) or leave the amount open for customer-defined inputs like donations or variable service fees. Once created, a payment link can be shared via email, SMS, social media, or any other channel. Every successful payment through the link is recorded as a transaction in your ledger — making payment links a lightweight but fully auditable collection tool.
+
+## Accessing the Payment Links Page
+
+1. Log in to the OwnPay admin panel.
+2. In the left sidebar under the **PAYMENTS** section, click **Payment Links**.
+
+## Page Layout
+
+The payment links module includes a **Dashboard List** showing all existing links and a **Create Link Form** for generating new ones.
+
+### Payment Links Dashboard List
+
+Each row in the list represents one payment link:
+
+| Column | Description |
+|---|---|
+| **Title** | The customer-facing name of the product or service (e.g. `Monthly Hosting Fee`). |
+| **Amount** | The locked price in the selected currency, or **Custom** if the customer sets their own amount. |
+| **Uses** | A running count of successful payments completed through this link. |
+| **Status** | Current availability: `active`, `inactive`, or `expired`. |
+| **Link** | The relative public checkout path (e.g. `/pay/hosting-setup-fee-32bb`). |
+| **Actions** | **Edit** the link settings, or **Copy Link** to copy the full public checkout URL to your clipboard. |
+
+### Create Link Form
+
+Accessed by clicking **+ Create Link**. The form has two sections:
+
+**Link Details** — Core configuration: Title, Description, Amount (fixed or blank for custom), and Currency.
+
+**Settings** — Advanced options: Max Uses limit, Expiry date/time, and the Require Shipping Address toggle for physical goods.
+
+## Creating a Payment Link
+
+<Steps>
+  <Step title="Click '+ Create Link'">
+    Press the **+ Create Link** button in the top-right corner of the Payment Links page.
+  </Step>
+  <Step title="Enter a descriptive title">
+    Type a clear, customer-facing name in the **Title** field (e.g. `Hosting Setup Fee` or `Conference Registration`). This title appears on the customer's checkout screen.
+  </Step>
+  <Step title="Add a description (optional)">
+    Use the **Description** text area to provide additional context for the customer — such as what is included, delivery timelines, or terms. This is shown beneath the title on checkout.
+  </Step>
+  <Step title="Set the amount">
+    - **Fixed price**: Enter a numeric value in the **Amount** field (e.g. `2500`). The checkout locks the price and the customer cannot modify it.
+    - **Custom amount**: Leave the **Amount** field blank. The checkout will prompt the customer to enter their own payment amount. Ideal for donations or variable-fee services.
+  </Step>
+  <Step title="Select the currency">
+    Choose the billing currency from the **Currency** dropdown (e.g. `BDT`). Ensure at least one active payment gateway supports this currency, or customers will see a payment method error on checkout.
+  </Step>
+  <Step title="Configure usage limits (optional)">
+    - **Max Uses**: Set a numeric limit (e.g. `1` for a single-use link, `100` for a batch). Set to `0` for unlimited uses.
+    - **Expires At**: Pick a date and time after which the link automatically deactivates. Leave blank to keep the link open indefinitely.
+  </Step>
+  <Step title="Enable shipping address collection (optional)">
+    Check **Require Shipping Address** if you are selling physical goods that need delivery. This adds mandatory address fields to the checkout form.
+  </Step>
+  <Step title="Click 'Create Link'">
+    Press **Create Link** to save. The new link appears in the dashboard list with `active` status.
+  </Step>
+  <Step title="Copy and share the link">
+    In the **Actions** column, click **Copy Link** to copy the full public checkout URL. Share it anywhere — email, SMS, social media, or embedded as a button on your website.
+  </Step>
+</Steps>
+
+## Payment Link Fields Reference
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| **Title** | Yes | — | Customer-facing product or service name. Visible on checkout. |
+| **Description** | No | — | Optional explanatory note shown on the checkout screen. |
+| **Amount** | No | — | Fixed checkout price. Leave blank to allow customer-defined amounts. |
+| **Currency** | Yes | BDT | Currency used to bill the customer. |
+| **Max Uses** | No | 0 (unlimited) | Maximum number of successful payments before the link auto-expires. `0` = unlimited. |
+| **Expires At** | No | — | Date and time after which the link becomes inaccessible. Leave blank for no expiry. |
+| **Require Shipping Address** | No | Unchecked | Forces the checkout to collect a physical delivery address from the customer. |
+
+## How Link Expiry and Usage Tracking Work
+
+<Accordion title="Automatic Expiry by Max Uses">
+  Every successful payment via a payment link increments the `use_count` counter in the database. When `use_count` reaches `max_uses`, the link's status automatically changes to `expired`. Any subsequent visitor to that URL will see a **Link Expired** error page. To reactivate, edit the link and increase the **Max Uses** value.
+</Accordion>
+
+<Accordion title="Time-Based Expiry">
+  If an **Expires At** date and time is set, the link becomes inaccessible to customers once that moment passes — regardless of how many times it has been used. This is useful for limited-time offers or event registrations with a hard close date.
+</Accordion>
+
+<Accordion title="Custom Amount Flow">
+  When a payment link has no fixed amount, the customer is presented with a numeric input field on the checkout screen to type their desired payment value. The minimum accepted value is enforced by the active gateway's minimum transaction limits. All amounts are recorded in the link's currency.
+</Accordion>
+
+## Tracking Link Conversions
+
+Monitor the performance of each payment link directly from the dashboard list:
+
+- **Uses counter**: Shows how many successful payments have been completed through each link. Compare this against your expected audience size to gauge conversion rate.
+- **Status badge**: An `expired` badge means the link has hit its usage cap or passed its expiry date.
+- **Transactions page**: All payments made through payment links are recorded as standard transactions. Navigate to [Transactions](/user-guide/payments/transactions) and filter by the link's associated gateway to inspect individual payment records.
+
+<Tip>
+  For high-volume campaigns, set a generous **Max Uses** limit and rely on **Expires At** for time-based control instead. This avoids links unexpectedly expiring mid-campaign if your usage estimate was too conservative.
+</Tip>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Single-Use Links for Specific Customers" icon="user-lock" href="/user-guide/payments/payment-links">
+    Set **Max Uses** to `1` when generating a payment link intended for exactly one customer. This prevents the link from being reused or shared, giving you invoice-like exclusivity without the formal invoice structure.
+  </Card>
+  <Card title="Activate Gateways Before Sharing" icon="plug-circle-check" href="/user-guide/payments/payment-links">
+    Before distributing a link, confirm at least one active payment gateway supports the link's currency. Customers who visit a link with no available payment methods will see an error and cannot complete checkout.
+  </Card>
+  <Card title="Never Change a Live Slug" icon="link-slash" href="/user-guide/payments/payment-links">
+    Once a link has been shared with customers, do not edit the URL slug. Changing the slug breaks all previously shared URLs, resulting in 404 errors for customers who click older links.
+  </Card>
+  <Card title="Use Invoices for Itemized Billing" icon="file-invoice-dollar" href="/user-guide/payments/invoices">
+    Payment links are ideal for simple, single-amount collections. If you need line items, due dates, formal invoice numbers, or specific customer assignment, use [Invoices](/user-guide/payments/invoices) instead.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Ensure that your configured manual gateways or API gateways are active and healthy before sharing payment links. If all gateways for a given currency are inactive, customers landing on the checkout page will be unable to select a payment method and cannot complete payment.
+</Warning>
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| Customer sees a `Link Expired` page | The link reached its **Max Uses** limit or the **Expires At** time has passed. | Edit the link in the admin panel and increase **Max Uses** or remove/extend the expiry date. |
+| Customer cannot select a payment method | No active gateways are configured for the link's currency. | Navigate to **Payment Gateways** and activate at least one gateway (e.g. manual bKash/Nagad or a card processor) for the relevant currency. |
+| Old shared links return a 404 error | The URL slug was changed after the link was distributed. | Edit the link and restore the original slug, or re-share the updated URL with all affected customers. |
+| `Uses` counter not incrementing | A gateway webhook failed to confirm the payment, leaving the transaction in `pending` status. | Check **Developer → Webhook Logs** and resolve any failed callback events for the affected gateway. |
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Transactions" icon="arrow-right-arrow-left" href="/user-guide/payments/transactions">
+    Inspect the individual payment records generated by each checkout through a payment link.
+  </Card>
+  <Card title="Invoices" icon="file-invoice-dollar" href="/user-guide/payments/invoices">
+    Issue formal, multi-line invoices when structured billing with due dates and item detail is required.
+  </Card>
+  <Card title="Ledger" icon="book" href="/user-guide/payments/ledger">
+    Review the double-entry ledger entries created when a payment link checkout is completed.
+  </Card>
+  <Card title="Dashboard" icon="gauge" href="/user-guide/dashboard/dashboard">
+    Monitor payment link revenue alongside all other financial activity on the platform.
+  </Card>
+</CardGroup>

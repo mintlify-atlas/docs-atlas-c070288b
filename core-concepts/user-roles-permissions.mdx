@@ -1,0 +1,169 @@
+---
+title: "User Roles and Permissions in OwnPay"
+sidebarTitle: "Roles & Permissions"
+description: "OwnPay's RBAC system: master admin sovereignty, brand-scoped staff roles, permission scopes, staff invitation flow, and no self-registration policy."
+---
+
+OwnPay uses a role-based access control (RBAC) system to govern what actions each user can perform and which data they can see. The design reflects OwnPay's sovereign single-owner model: one master administrator controls the installation, while brand-level staff are strictly scoped to the brands they have been explicitly assigned to. There is no self-registration — every user account is created by an administrator.
+
+## The Sovereign Owner Model
+
+The master administrator account is created during installation and holds unrestricted access to the entire OwnPay installation. No other user — regardless of their role — can see across brand boundaries, manage system settings, or access the master admin dashboard without the master administrator role.
+
+This is a deliberate design decision. OwnPay is infrastructure owned and operated by one entity. The master administrator is that entity's representative. All other users are guests with delegated, scoped permissions.
+
+## Default Roles
+
+<Tabs>
+  <Tab title="Master Administrator">
+    The master administrator is the sovereign owner of the OwnPay installation.
+
+    **Scope:** Entire installation — all brands, all data, all settings
+
+    **Capabilities:**
+    - Create, edit, and delete any brand
+    - View and manage transactions across all brands
+    - Create, invite, and remove any staff member on any brand
+    - Install and manage system plugins
+    - Configure system-wide settings (email, caching, queues)
+    - Access all API keys and webhook configurations across all brands
+    - View consolidated reports spanning all brands
+
+    **Count:** Typically 1–2 per installation. The account created during the web installer is automatically assigned this role.
+
+    <Warning>
+      The master administrator account cannot be restricted by brand-level permissions. Protect this account with a strong password and Two-Factor Authentication. If the master admin account is compromised, the attacker has full access to all brands and all transaction data.
+    </Warning>
+  </Tab>
+  <Tab title="Brand Staff">
+    Brand staff are users scoped to one or more specific brands. They cannot see or interact with any brand they have not been assigned to.
+
+    **Scope:** The brand(s) they are explicitly assigned to
+
+    **Access level within a brand:** Determined by the specific permissions granted to their role
+
+    Brand staff can be configured with any combination of the permission scopes listed in the Permissions section below. A "brand manager" configuration typically includes all brand-level permissions. A "support agent" configuration might be limited to viewing transactions and customers.
+  </Tab>
+  <Tab title="Read-Only Viewers">
+    A read-only viewer has access to a brand's data but cannot create, modify, or delete anything. This role is designed for accountants, auditors, and finance team members who need to review transaction records and run reports without any risk of accidental data modification.
+
+    **Scope:** The brand(s) they are assigned to, read-only
+
+    **Typical use cases:**
+    - External accountant reviewing monthly transaction exports
+    - Finance team member reconciling ledger records
+    - Compliance auditor reviewing payment history
+  </Tab>
+</Tabs>
+
+## Permission Scopes
+
+Permissions are organized into named scopes. When creating a custom role, you select any combination of these scopes to define exactly what the role can do.
+
+| Permission Scope | What It Allows |
+|-----------------|---------------|
+| `view_transactions` | Read transaction records, payment details, and ledger entries for the assigned brand |
+| `manage_gateways` | Add, edit, configure, and remove payment gateways on the assigned brand |
+| `manage_webhooks` | Create, update, and delete webhook endpoints; view delivery logs; trigger test dispatches |
+| `create_users` | Invite new staff members to the assigned brand and assign them roles |
+| `manage_customers` | Create, edit, and delete customer records on the assigned brand |
+| `manage_brands` | Edit brand settings, branding, domain configuration, and appearance (master admin only for creating new brands) |
+| `manage_plugins` | Install, activate, deactivate, and remove gateway and extension plugins |
+| `view_reports` | Access financial reports, analytics dashboards, and export transaction data |
+| `manage_settings` | Modify brand-level configuration including email templates, notification settings, and checkout options |
+
+## Permission Matrix
+
+| Permission | Master Admin | Brand Manager | Staff Member | View-Only |
+|-----------|:---:|:---:|:---:|:---:|
+| `view_transactions` | ✅ | ✅ | ✅ | ✅ |
+| `view_reports` | ✅ | ✅ | ✅ | ✅ |
+| `manage_customers` | ✅ | ✅ | ✅ | ❌ |
+| `manage_gateways` | ✅ | ✅ | ❌ | ❌ |
+| `manage_webhooks` | ✅ | ✅ | ❌ | ❌ |
+| `create_users` | ✅ | ✅ | ❌ | ❌ |
+| `manage_settings` | ✅ | ✅ | ❌ | ❌ |
+| `manage_brands` | ✅ | ❌ | ❌ | ❌ |
+| `manage_plugins` | ✅ | ❌ | ❌ | ❌ |
+| Access all brands | ✅ | ❌ | ❌ | ❌ |
+
+## No Self-Registration Policy
+
+OwnPay does not support self-registration. Users cannot create their own accounts. Every account — including brand managers, staff members, and read-only viewers — must be created by the master administrator or by a brand-level user with the `create_users` permission.
+
+This is intentional. A payment gateway should not have an open registration flow. Every person with access to transaction data should be explicitly authorized by a human who is accountable for that authorization.
+
+## Staff Invitation Flow
+
+<Steps>
+  <Step title="Navigate to Staff Management">
+    Go to **People → Staff** within the brand context you want to add the user to.
+  </Step>
+  <Step title="Click Add Staff">
+    Click **Add Staff** and fill in the new user's details:
+    - **Full Name**
+    - **Email Address** — This becomes the login credential
+    - **Role** — Select a built-in role or a custom role you have created
+    - **Brand Assignment** — Which brand(s) this person can access
+  </Step>
+  <Step title="Send the Invitation">
+    Click **Create**. OwnPay sends an invitation email to the address you provided. The email contains a secure one-time link.
+  </Step>
+  <Step title="User Sets Their Password">
+    The invited user clicks the link in the email, sets their password (minimum 12 characters is enforced), and is redirected to their brand-scoped admin dashboard.
+  </Step>
+  <Step title="User Accesses Their Brand">
+    The new user can now log in at `yourdomain.com/login`. They will only see the brand(s) and features their role permits. The master admin dashboard and other brands are not visible to them.
+  </Step>
+</Steps>
+
+<Note>
+  Invitation links expire after 48 hours. If a user does not accept their invitation in time, the master administrator must resend it from **People → Staff → [user] → Resend Invitation**.
+</Note>
+
+## Creating Custom Roles
+
+If the default role configurations do not match your operational structure, you can create custom roles with exactly the permission scopes you need.
+
+1. Go to **People → Roles**
+2. Click **Add Role**
+3. Enter a descriptive name for the role (e.g. "Finance Analyst", "Customer Support", "Developer")
+4. Select the permission scopes this role should have
+5. Click **Create**
+
+The new role is immediately available in the role dropdown when inviting or editing staff members.
+
+## Example Role Configurations
+
+<AccordionGroup>
+  <Accordion title="Customer Support Agent" icon="headset">
+    A support agent needs to look up customer records and payment history to answer queries, and occasionally needs to create a payment link on a customer's behalf. They should not be able to touch gateway configuration or financial settings.
+
+    **Permissions:** `view_transactions`, `manage_customers`
+  </Accordion>
+  <Accordion title="Finance Analyst / Accountant" icon="calculator">
+    An accountant or finance team member needs full read access to transactions and reports for reconciliation, but must not be able to create or modify any records.
+
+    **Permissions:** `view_transactions`, `view_reports`
+  </Accordion>
+  <Accordion title="Developer / Integration Engineer" icon="code">
+    A developer building an integration needs access to API keys, webhook configuration, and transaction logs for debugging. They do not need access to customer PII, staff management, or financial settings.
+
+    **Permissions:** `view_transactions`, `manage_webhooks`
+  </Accordion>
+  <Accordion title="Brand Operations Manager" icon="gear">
+    An operations manager running day-to-day payment operations for a brand needs full access except for plugin management and system-level settings.
+
+    **Permissions:** `view_transactions`, `manage_gateways`, `manage_webhooks`, `create_users`, `manage_customers`, `view_reports`, `manage_settings`
+  </Accordion>
+</AccordionGroup>
+
+## Auditing User Access
+
+All actions performed by staff members are logged. To review what a specific user has done:
+
+1. Go to **Reports → Audit Log**
+2. Filter by user email or user ID
+3. Review the timestamped list of actions, including what resource was affected and what change was made
+
+Audit logs are retained according to the retention policy configured in **Settings → System**. They cannot be modified or deleted by brand-level staff — only the master administrator can manage audit log retention settings.

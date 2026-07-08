@@ -1,0 +1,353 @@
+---
+title: "Integrate OwnPay with Ruby Applications"
+sidebarTitle: "Ruby"
+description: "Step-by-step guide to calling the OwnPay REST API from Ruby using Net::HTTP — payments, webhooks, refunds, and error handling patterns."
+---
+
+Ruby's standard library `Net::HTTP` combined with the built-in `json` gem covers everything required to integrate with OwnPay's REST API — no external dependencies are mandatory. This guide walks through building a reusable Ruby client class, creating payment intents, verifying outcomes, handling incoming webhooks inside a Rails or Sinatra controller, issuing refunds, and managing customers — all using real OwnPay endpoints.
+
+<Info>
+OwnPay has no official Ruby gem at this time. The examples below use Ruby's built-in `net/http` and `json` libraries. If you prefer Faraday or HTTParty, the same endpoint patterns apply.
+</Info>
+
+## Prerequisites
+
+Store your credentials as environment variables:
+
+```bash
+export OWNPAY_API_KEY="op.xxxxxxxxxxxxx"
+export OWNPAY_BASE_URL="https://pay.yourbrand.com/api/v1"
+```
+
+---
+
+## Client Setup
+
+```ruby
+require 'net/http'
+require 'uri'
+require 'json'
+
+class OwnPayClient
+  class Error < StandardError
+    attr_reader :status_code, :errors, :request_id
+
+    def initialize(status_code, message, errors: [], request_id: nil)
+      @status_code = status_code
+      @errors      = errors
+      @request_id  = request_id
+      super("[#{status_code}] #{message} (request_id=#{request_id})")
+    end
+  end
+
+  BASE_URL = ENV.fetch('OWNPAY_BASE_URL')
+  API_KEY  = ENV.fetch('OWNPAY_API_KEY')
+
+  def initialize
+    uri        = URI.parse(BASE_URL)
+    @http      = Net::HTTP.new(uri.host, uri.port)
+    @http.use_ssl = uri.scheme == 'https'
+    @http.open_timeout = 10
+    @http.read_timeout = 30
+    @base_path = uri.path
+  end
+
+  private
+
+  def request(method, path, body: nil, extra_headers: {})
+    klass = {
+      'GET'    => Net::HTTP::Get,
+      'POST'   => Net::HTTP::Post,
+      'DELETE' => Net::HTTP::Delete
+    }.fetch(method)
+
+    req = klass.new(@base_path + path)
+    req['Authorization'] = "Bearer #{API_KEY}"
+    req['Accept']        = 'application/json'
+    extra_headers.each { |k, v| req[k] = v }
+
+    if body
+      req['Content-Type'] = 'application/json'
+      req.body = body.to_json
+    end
+
+    resp     = @http.request(req)
+    parsed   = JSON.parse(resp.body, symbolize_names: true)
+    status   = resp.code.to_i
+
+    unless (200..299).cover?(status)
+      raise Error.new(
+        status,
+        parsed[:error] || "HTTP #{status}",
+        errors:     parsed[:errors] || [],
+        request_id: parsed[:request_id]
+      )
+    end
+
+    parsed[:data]
+  end
+end
+```
+
+---
+
+## Health Check
+
+```ruby
+def health
+  request('GET', '/health')
+end
+
+client = OwnPayClient.new
+health = client.health
+puts "Status : #{health[:status]}"
+puts "Version: #{health[:version]}"
+puts "DB     : #{health[:db]}"
+puts "Gateways active: #{health[:gateways]}"
+```
+
+<Note>
+`GET /health` requires no authentication. You can use it from monitoring scripts or Kubernetes liveness probes without exposing an API key.
+</Note>
+
+---
+
+## Creating a Payment Intent
+
+```ruby
+def create_payment(amount:, currency:, reference: nil, **options)
+  # options may include: callback_url, redirect_url, cancel_url,
+  # customer_email, customer_name, customer_phone, gateway, metadata
+  payload = { amount: amount, currency: currency }
+  payload[:reference] = reference if reference
+  payload.merge!(options.compact)
+
+  request('POST', '/payments', body: payload)
+end
+
+# Usage
+payment = client.create_payment(
+  amount:         '500.00',
+  currency:       'BDT',
+  reference:      'INV-10029',
+  callback_url:   'https://my-store.com/webhooks/ownpay',
+  redirect_url:   'https://my-store.com/checkout/success',
+  cancel_url:     'https://my-store.com/checkout/cancel',
+  customer_email: 'customer@example.com',
+  customer_name:  'John Doe',
+  metadata:       { store_id: 'dhaka-branch' }
+)
+
+puts "Payment ID  : #{payment[:payment_id]}"
+puts "Checkout URL: #{payment[:checkout_url]}"
+
+# In a Rails controller:
+# redirect_to payment[:checkout_url]
+```
+
+<Tip>
+Store `payment[:payment_id]` in the user's session so you can verify the outcome when the customer returns to your `redirect_url`.
+</Tip>
+
+---
+
+## Retrieving a Payment
+
+```ruby
+def get_payment(payment_id)
+  request('GET', "/payments/#{payment_id}")
+end
+
+# Verify before fulfilling
+payment = client.get_payment('a810b445-564a-4e20-80a5-f1261d7b328a')
+
+if payment[:status] == 'completed'
+  puts "Order confirmed: #{payment[:trx_id]} — #{payment[:amount]} #{payment[:currency]}"
+else
+  puts "Payment not yet completed: #{payment[:status]}"
+end
+```
+
+<Warning>
+Always verify payment status server-side before fulfilling an order. Query parameters appended to your `redirect_url` can be tampered with by the customer.
+</Warning>
+
+---
+
+## Listing Transactions
+
+```ruby
+def list_transactions(status: nil, from: nil, to: nil, page: 1, per_page: 25)
+  params = { page: page, per_page: per_page }
+  params[:status] = status if status
+  params[:from]   = from   if from
+  params[:to]     = to     if to
+
+  query  = URI.encode_www_form(params)
+  request('GET', "/transactions?#{query}")
+end
+
+transactions = client.list_transactions(
+  status:   'completed',
+  from:     '2026-06-01',
+  to:       '2026-06-30',
+  per_page: 50
+)
+
+transactions.each do |txn|
+  puts "  #{txn[:trx_id]}  #{txn[:amount]} #{txn[:currency]}  #{txn[:status]}"
+end
+```
+
+---
+
+## Issuing a Refund
+
+```ruby
+def create_refund(trx_id:, amount: nil, reason: nil)
+  payload = { trx_id: trx_id }
+  payload[:amount] = amount if amount
+  payload[:reason] = reason if reason
+
+  request('POST', '/refunds', body: payload)
+end
+
+refund = client.create_refund(
+  trx_id: 'OP-481029304',
+  amount: '150.00',
+  reason: 'Customer requested return'
+)
+
+puts "Refund #{refund[:uuid]} — status: #{refund[:status]}"
+```
+
+---
+
+## Handling Webhooks
+
+### Rails
+
+```ruby
+# app/controllers/webhooks_controller.rb
+class WebhooksController < ApplicationController
+  skip_before_action :verify_authenticity_token
+
+  def ownpay
+    event = JSON.parse(request.body.read, symbolize_names: true)
+
+    unless event[:event] == 'payment.completed'
+      render json: { ok: false, reason: 'unrecognised event' }, status: :bad_request
+      return
+    end
+
+    trx_id = event.dig(:data, :trx_id)
+
+    # Re-verify via API — never trust the webhook payload alone
+    client      = OwnPayClient.new
+    transaction = client.get_transaction(trx_id)
+
+    unless transaction[:status] == 'completed'
+      render json: { ok: false, reason: 'not completed' }, status: :bad_request
+      return
+    end
+
+    # Fulfil the order
+    Rails.logger.info "Fulfilling order: #{transaction[:reference]}"
+    # OrderFulfillmentJob.perform_later(transaction[:reference])
+
+    render json: { ok: true }
+  rescue OwnPayClient::Error => e
+    Rails.logger.error "OwnPay webhook error: #{e.message}"
+    render json: { ok: false }, status: :bad_gateway
+  end
+end
+```
+
+### Sinatra
+
+```ruby
+require 'sinatra'
+require 'json'
+
+post '/webhooks/ownpay' do
+  content_type :json
+
+  event = JSON.parse(request.body.read, symbolize_names: true)
+
+  halt 400, { ok: false, reason: 'unrecognised event' }.to_json \
+    unless event[:event] == 'payment.completed'
+
+  trx_id      = event.dig(:data, :trx_id)
+  client      = OwnPayClient.new
+  transaction = client.get_transaction(trx_id)
+
+  halt 400, { ok: false, reason: 'not completed' }.to_json \
+    unless transaction[:status] == 'completed'
+
+  logger.info "Fulfilling order: #{transaction[:reference]}"
+
+  { ok: true }.to_json
+end
+```
+
+<Tip>
+Return HTTP `200` immediately and hand off heavy work (emails, stock updates) to a background job (Sidekiq, Resque). OwnPay expects a response within **10 seconds**.
+</Tip>
+
+---
+
+## Customer Management
+
+```ruby
+def create_customer(name:, email: nil, phone: nil)
+  payload = { name: name }
+  payload[:email] = email if email
+  payload[:phone] = phone if phone
+  request('POST', '/customers', body: payload)
+end
+
+def get_customer(identifier)
+  encoded = URI.encode_www_form_component(identifier)
+  request('GET', "/customers/#{encoded}")
+end
+
+# Create
+new_customer = client.create_customer(
+  name:  'Alice Smith',
+  email: 'alice@example.com',
+  phone: '+8801800000000'
+)
+puts "Created customer: #{new_customer[:uuid]}"
+
+# Retrieve by email
+customer = client.get_customer('alice@example.com')
+puts "Name: #{customer[:name]}, Phone: #{customer[:phone]}"
+```
+
+---
+
+## Error Handling
+
+```ruby
+begin
+  payment = client.create_payment(amount: '-1', currency: 'BDT')
+rescue OwnPayClient::Error => e
+  puts "API error #{e.status_code}: #{e.message}"
+
+  e.errors.each do |err|
+    puts "  Field '#{err[:field]}': #{err[:message]}"
+  end
+end
+```
+
+<Accordion title="OwnPay HTTP status codes and Ruby handling strategy">
+| Status | Meaning | Ruby action |
+|--------|---------|-------------|
+| `400` | Business rule violation | Render error to operator |
+| `401` | Invalid or missing API key | Check `OWNPAY_API_KEY` env var |
+| `403` | Insufficient scope | Regenerate key with required scope |
+| `404` | Resource not found | Validate IDs before calling |
+| `409` | Duplicate customer email | Look up existing customer instead |
+| `422` | Validation failure | Inspect `errors` array |
+| `503` | System degraded | Retry with exponential back-off |
+</Accordion>

@@ -1,0 +1,175 @@
+---
+title: "My Account: Profile, Password & Two-Factor Authentication"
+sidebarTitle: "My Account"
+description: "Update your display name, email, and password, and enable RFC 6238 TOTP two-factor authentication to secure your OwnPay admin account."
+---
+
+The My Account settings page is your personal control panel within OwnPay. Every administrator and staff member uses this page to maintain their own profile details — updating their display name, rotating their login email, and changing their password. More importantly, this is where you configure **Two-Factor Authentication (2FA)**, the single most impactful security measure you can apply to your account. OwnPay implements RFC 6238-compliant TOTP, compatible with all major authenticator apps including Google Authenticator, Authy, Aegis, and Bitwarden.
+
+<Note>
+  Passwords are hashed using **Argon2id** with high-iteration parameters. TOTP secrets are stored encrypted with **AES-256-GCM**. OwnPay's authentication layer is designed to prevent credential recovery — there is no way to view a stored password. Always store credentials in a dedicated password manager.
+</Note>
+
+## Accessing My Account
+
+<Steps>
+  <Step title="Log in to the Admin Panel">
+    Sign in to the OwnPay admin dashboard with your credentials.
+  </Step>
+  <Step title="Open Account Settings">
+    Click your profile name in the top navbar or the left sidebar navigation footer, then select **My Account** or **Account Settings** from the dropdown menu.
+  </Step>
+</Steps>
+
+---
+
+## Profile Information
+
+The **Profile Information** section lets you update the display name and email address associated with your account.
+
+| Field | Type | Required | Example | Description |
+|---|---|---|---|---|
+| **Name** | Text | Yes | `John Doe` | Display name shown in audit logs and admin interface headers. |
+| **Email** | Text | Yes | `admin@example.com` | Login email address used for dashboard sign-in and password resets. |
+
+### Updating Your Name or Email
+
+<Steps>
+  <Step title="Navigate to My Account">
+    Open **My Account** from the profile menu.
+  </Step>
+  <Step title="Edit Profile Fields">
+    Update the **Name** or **Email** input fields with your new details.
+  </Step>
+  <Step title="Save">
+    Click **Update Profile**. A success flash message confirms the update.
+  </Step>
+</Steps>
+
+---
+
+## Changing Your Password
+
+<Steps>
+  <Step title="Scroll to Update Password">
+    On the My Account page, scroll down to the **Update Password** section.
+  </Step>
+  <Step title="Enter Current Password">
+    Type your existing password in the **Current Password** field to authenticate the change.
+  </Step>
+  <Step title="Set a New Password">
+    Enter a strong password (minimum 8 characters, combining uppercase, lowercase, numbers, and symbols) in the **New Password** field.
+  </Step>
+  <Step title="Confirm the New Password">
+    Re-enter the new password exactly in the **Confirm Password** field.
+  </Step>
+  <Step title="Submit">
+    Click **Update Password**. The system hashes and saves your new password, then logs you out of all active sessions and redirects you to the login screen to sign in with your updated credentials.
+  </Step>
+</Steps>
+
+### Password Field Reference
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| **Current Password** | Password | Yes | Authenticates that you authorize the change. |
+| **New Password** | Password | Yes | Minimum 8 characters. Hashed with Argon2id. |
+| **Confirm Password** | Password | Yes | Must match the New Password field exactly. |
+
+---
+
+## Two-Factor Authentication (2FA)
+
+### Why Enable 2FA
+
+Two-factor authentication adds a second layer of verification beyond your password. Even if your password is compromised, an attacker cannot log in without access to your physical authenticator device. For accounts with administrative access to financial data and payment configuration, enabling 2FA is essential.
+
+### 2FA Status Badge
+
+The My Account page displays a prominent status badge: `✓ Enabled` (green) when 2FA is active, or `Disabled` (red) when it is not. Click **Manage 2FA** or **Setup 2FA** to enter the configuration screen.
+
+### Enabling Two-Factor Authentication
+
+<Steps>
+  <Step title="Open 2FA Setup">
+    On the My Account page, click **Setup 2FA** or **Manage 2FA**.
+  </Step>
+  <Step title="Scan the QR Code">
+    The 2FA setup screen displays a QR code and a backup text secret. Open your authenticator app (Google Authenticator, Authy, Aegis, or Bitwarden) and scan the QR code. If you cannot scan the QR code, manually enter the backup text secret into your app.
+  </Step>
+  <Step title="Save the Backup Secret">
+    Write down the backup text secret and store it securely (a password vault or secure physical location). This is the only recovery mechanism if you lose access to your authenticator device.
+  </Step>
+  <Step title="Enter the Verification Code">
+    Once your authenticator app begins displaying 6-digit codes, type the current code into the **Verification Code** field on the setup screen.
+  </Step>
+  <Step title="Enable 2FA">
+    Click **Enable 2FA**. Upon successful code validation, the status updates to `✓ Enabled`. All future login attempts will require your email, password, and a rolling 6-digit TOTP code.
+  </Step>
+</Steps>
+
+### Disabling Two-Factor Authentication
+
+<Steps>
+  <Step title="Open Manage 2FA">
+    On the My Account page, click **Manage 2FA** or **Disable 2FA**.
+  </Step>
+  <Step title="Confirm Your Identity">
+    Enter your current account password in the confirmation field.
+  </Step>
+  <Step title="Disable 2FA">
+    Click **Disable 2FA**. The system removes your TOTP configuration. Future logins will require only your email and password.
+  </Step>
+</Steps>
+
+<Warning>
+  Only disable 2FA when migrating to a new authenticator device. Before disabling, set up the new device with the same backup secret or immediately re-enable 2FA after the device transfer is complete. A brief window without 2FA exposes your account.
+</Warning>
+
+---
+
+## 2FA Technical Details
+
+<Accordion title="TOTP drift window">
+  OwnPay accepts TOTP codes with a drift allowance window of ±1 step (approximately ±30 seconds from the current server time). This compensates for minor clock drift between your server and your mobile device. If codes are consistently rejected, verify that both your server and device are synchronized to an NTP time source.
+</Accordion>
+
+<Accordion title="Rate limiting on 2FA attempts">
+  2FA verification attempts are rate-limited to prevent brute-force guessing attacks. After several consecutive failed attempts, the verification endpoint temporarily blocks further submissions from the same IP address.
+</Accordion>
+
+<Accordion title="Account lockout recovery">
+  If a staff member is locked out of their account because they lost their authenticator device and did not save the backup secret, the super-administrator must clear the user's `two_factor_enabled` and `totp_secret_enc` values in the `op_merchant_users` database table, or reset the account via the **Staff** management settings menu.
+</Accordion>
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Enable 2FA Immediately" icon="shield">
+    Activate two-factor authentication on all administrative and staff accounts as part of your initial platform setup. Do not wait until after going live.
+  </Card>
+  <Card title="Store the 2FA Backup Secret" icon="key">
+    Before enabling 2FA, copy and securely store the backup text secret. This is the only way to recover access if your authenticator device is lost, stolen, or reset.
+  </Card>
+  <Card title="Use a Password Manager" icon="lock">
+    Store your OwnPay password and 2FA backup secret in a dedicated password manager (e.g. Bitwarden, 1Password). Never share credentials with other staff members.
+  </Card>
+  <Card title="Rotate Passwords Periodically" icon="rotate">
+    Change your password on a regular schedule — especially after onboarding new staff members who may have had temporary access to shared credentials.
+  </Card>
+</CardGroup>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Staff Management" icon="users" href="/user-guide/people/staff">
+    Create and manage administrator and team member profiles across the platform.
+  </Card>
+  <Card title="Roles & Permissions" icon="shield-halved" href="/user-guide/people/roles">
+    Assign specific permission matrices to staff accounts to control feature access.
+  </Card>
+</CardGroup>

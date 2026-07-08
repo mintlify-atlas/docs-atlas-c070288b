@@ -1,0 +1,351 @@
+---
+title: "OwnPay Plugin Events: EventManager API Reference"
+sidebarTitle: "Events"
+description: "Complete EventManager API reference: addAction, addFilter, applyFilter, brand-context scoping, error isolation, Twig hook points, and practical patterns."
+---
+
+OwnPay's plugin system is built around a central event bus implemented in `OwnPay\Event\EventManager`. Rather than a separate event-dispatch library, OwnPay unifies hooks and events under a single API with two hook types — **actions** (fire-and-forget notifications) and **filters** (pipeline mutation) — both managed by the same `EventManager` instance.
+
+Understanding the difference between how you **subscribe** to events (in your plugin's `register()` method) versus how the **core fires** them (using `doAction` and `applyFilter`) is the foundation of plugin development.
+
+## Hooks vs. Events: Key Distinction
+
+<CardGroup cols={2}>
+  <Card title="Filter Hooks (Synchronous)" icon="arrows-left-right">
+    **Synchronous pipeline.** The core pauses, runs all registered listeners in priority order, collects the final return value, and continues. The calling code waits for the result. Use for modifying data: amounts, templates, context arrays, fee rules.
+  </Card>
+  <Card title="Action Hooks (Async Notifications)" icon="bell">
+    **Fire-and-forget notification.** The core fires the action and continues immediately. Listener return values are discarded. Error isolation ensures one failing listener never blocks the next. Use for side effects: sending SMS, logging, dispatching jobs.
+  </Card>
+</CardGroup>
+
+The distinction matters for performance-sensitive code paths: a slow database query inside a `payment.amount.calculate` filter directly delays checkout response time, whereas the same query inside a `payment.transaction.completed` action does not (though queueing it is still best practice).
+
+## Full EventManager API
+
+The `EventManager` instance is injected into `PluginInterface::register()` as the first argument. Never instantiate it directly in your plugin.
+
+### Subscribing to Events
+
+#### `addAction(string $hook, callable $callback, int $priority = 10): void`
+
+Register a listener on an action hook. Called by plugins in `register()`.
+
+```php
+$events->addAction('payment.transaction.completed', [$this, 'onPaymentCompleted'], priority: 10);
+```
+
+- **`$hook`**: The event name (e.g., `'payment.transaction.completed'`).
+- **`$callback`**: Any PHP callable — closure, `[$object, 'method']`, or named function.
+- **`$priority`**: Execution order. Lower = runs first. Default is `10`.
+
+#### `addFilter(string $hook, callable $callback, int $priority = 10): void`
+
+Register a listener on a filter hook. The callback receives the current value as its first argument and **must** return a value of the same type.
+
+```php
+$events->addFilter('payment.fee.calculate', function (string $fee, array $context): string {
+    return $fee; // Must return string — same type received
+}, priority: 20);
+```
+
+### Firing Events (Core Only)
+
+These methods are called by OwnPay core, not by plugins. They are documented here so you can understand what the core is doing when your listeners are invoked.
+
+#### `doAction(string $hook, mixed ...$args): void`
+
+Fires an action hook. All registered listeners run; return values are discarded.
+
+```php
+$events->doAction('payment.transaction.completed', $transactionArray);
+```
+
+#### `applyFilter(string $hook, mixed $value, mixed ...$args): mixed`
+
+Runs the value through all registered filter listeners. Returns the final transformed value. `applyFilters()` is an alias — both are identical.
+
+```php
+$amount = $events->applyFilter('payment.amount.calculate', $amount, ['currency' => 'USD']);
+```
+
+### Removing Listeners
+
+```php
+// Remove a specific listener from an action hook
+$events->removeAction('payment.transaction.completed', [$this, 'onPaymentCompleted']); // bool
+
+// Remove a specific listener from a filter hook
+$events->removeFilter('payment.fee.calculate', $myCallback); // bool
+
+// Remove ALL listeners on a hook (both actions and filters)
+$events->removeHook('checkout.head'); // void
+
+// Remove all hooks registered by a plugin slug (called by PluginManager on deactivation)
+$events->removeByOwner('my-plugin-slug');       // void
+$events->removeAllByOwner('my-plugin-slug');    // int — count of removed callbacks
+```
+
+### Inspection and Debugging
+
+```php
+// Check registration
+$events->hasAction('payment.transaction.completed'); // bool
+$events->hasFilter('payment.fee.calculate');         // bool
+$events->hasHook('checkout.head');                   // bool (action or filter)
+
+// Count how many times a hook has fired this request lifecycle
+$events->getFireCount('payment.transaction.completed'); // int
+
+// Find out which plugin owns the currently-executing callback
+$events->getActiveOwner(); // string — plugin slug or 'core'
+
+// List all registered hooks with listener counts
+$events->getRegisteredHooks();
+// Returns: ['hook.name' => ['actions' => N, 'filters' => N], ...]
+
+// Inspect every listener on a hook, sorted by priority
+$events->inspectHook('payment.transaction.completed');
+// Returns: [['callable' => ..., 'priority' => 10, 'owner' => 'my-plugin'], ...]
+```
+
+## Execution Model
+
+### Owner Attribution and Brand-Context Scoping
+
+When `PluginLoader` calls `PluginInterface::register()`, it wraps the call with `events->pushOwner($slug)`. Every `addAction()` or `addFilter()` call made during `register()` is attributed to the plugin's slug.
+
+At dispatch time, before invoking each listener, `EventManager` calls `isOwnerActive($owner)`, which checks `PluginRegistry::isPluginActive($owner, $brandId)` against the current brand context. If the plugin is not active for the current brand, the listener is **silently skipped**:
+
+```
+Plugin "sms-gateway" active for Brand A, inactive for Brand B
+     ↓
+Request arrives for Brand B
+     ↓
+payment.transaction.completed fires
+     ↓
+sms-gateway listener → isOwnerActive('sms-gateway') → false → skipped
+```
+
+This is how per-brand plugin activation is enforced at runtime.
+
+### Error Isolation
+
+Every listener invocation is wrapped in `try/catch(Throwable)`. If a plugin listener throws, `EventManager`:
+
+1. Logs the error: `[OwnPay] Hook error in "{hook}" (owner: {slug}): {message} in {file}:{line}`.
+2. Continues to the next listener without crashing.
+
+A plugin failure **never** crashes a critical transaction flow or disrupts double-entry bookkeeping.
+
+**One exception**: If a listener modifies `db.query.before` and the resulting SQL fails `PluginSandbox::validateSql()`, the `RuntimeException` is **re-thrown** and propagates to the caller. A plugin attempting to access core tables must be stopped immediately.
+
+### Re-entrancy Guard
+
+`EventManager` includes a `resolvingOwnerActive` boolean guard to prevent infinite recursion if `isOwnerActive()` triggers another hook that re-triggers `isOwnerActive()`.
+
+## Twig Hook Points
+
+Twig templates use the `hook()` helper registered by `TwigExtensions` to execute action hooks and capture their output:
+
+```twig
+{# Checkout templates #}
+{{ hook('checkout.head')|raw }}
+{{ hook('checkout.footer')|raw }}
+
+{# Admin layout #}
+{{ hook('admin.head')|raw }}
+{{ hook('admin.footer')|raw }}
+{{ hook('admin.menu.register')|raw }}
+```
+
+The `hook()` helper calls `ob_start()`, fires `doAction($hookName)`, captures the output buffer, passes it through `TwigExtensions::sanitizeHookOutput()`, and returns the sanitized HTML.
+
+`sanitizeHookOutput()` strips: `<script>`, `<iframe>`, `<object>`, `<embed>`, `<form>`, `<base>`, `<meta>`, `<link>`, inline event handlers (`onclick`, `onload`, etc.), and `javascript:` URIs.
+
+<Warning>
+  `sanitizeHookOutput()` is a **backstop** against compromised plugins — it is not a substitute for escaping user-supplied data. Your hook callbacks must always escape dynamic values with `htmlspecialchars($value, ENT_QUOTES, 'UTF-8')`.
+</Warning>
+
+## Event Groups Reference
+
+### payment.* — Payment Lifecycle
+
+```php
+// React to a completed payment
+$events->addAction('payment.transaction.completed', function (array $txn): void {
+    // $txn contains all op_transactions columns
+    // trx_id, amount, currency, status, merchant_id, gateway_slug, etc.
+});
+
+// Modify a transaction before it is inserted
+$events->addFilter('payment.transaction.before_create', function (array $data, int $merchantId): array {
+    $data['meta_source'] = 'mobile-app'; // Inject custom metadata
+    return $data;
+});
+
+// Apply a custom fee tier
+$events->addFilter('payment.fee.calculate', function (string $fee, array $context): string {
+    // $context keys: amount, currency, merchant_id, gateway_slug
+    if (bccomp($context['amount'] ?? '0', '10000', 2) >= 0) {
+        return '0.00'; // Waive fee for large transactions
+    }
+    return $fee;
+}, priority: 5);
+```
+
+Available payment events: `payment.transaction.created`, `payment.transaction.completed`, `payment.transaction.failed`, `payment.transaction.cancelled`, `payment.transaction.before_create`, `payment.amount.calculate`, `payment.fee.calculate`, `payment.intent.created`, `payment.intent.expired`, `refund.created`, `ledger.entry.created`, `dispute.opened`, `dispute.resolved`.
+
+### customer.* — Customer Actions
+
+```php
+$events->addAction('customer.created', function (array $customer): void {
+    // $customer contains the new customer record
+    // Sync to CRM, send welcome email, etc.
+});
+
+$events->addAction('customer.deleted', function (array $customer): void {
+    // Customer PII has been purged — clean up any plugin-owned records
+});
+```
+
+Available customer events: `customer.created`, `customer.updated`, `customer.deleted`.
+
+### gateway.* — Gateway Operations
+
+```php
+// Augment payment parameters before they reach the gateway adapter
+$events->addFilter('gateway.capture.before', function (array $params, string $gatewaySlug, int $merchantId): array {
+    $params['metadata']['source'] = 'plugin-augmented';
+    return $params;
+});
+
+// Listen to a verified webhook from a specific gateway
+$events->addAction('gateway.webhook.stripe', function (\OwnPay\Model\WebhookPayload $payload): void {
+    // Payload has already passed verifyWebhook() — safe to process
+    $event = $payload->getEvent();
+});
+```
+
+Available gateway events: `gateway.capture.before`, `gateway.capture.after`, `gateway.webhook.{slug}`, `gateway.manual.render`, `gateway.manual.verify`.
+
+### webhook.* — Outbound Webhook Delivery
+
+```php
+$events->addAction('webhook.delivery.failed', function (int $merchantId, string $errorMessage): void {
+    // Notify admin via a different channel when webhook delivery fails
+});
+```
+
+Available webhook events: `webhook.delivery.success`, `webhook.delivery.failed`.
+
+### user.* / auth.* — User and Authentication Events
+
+```php
+// Log successful logins
+$events->addAction('auth.login.success', function (array $user, string $ip): void {
+    // Log for security audit
+});
+
+// Block suspicious login attempts
+$events->addFilter('auth.login.before', function (bool $allowed, string $email, string $ip): bool {
+    if ($ip === '198.51.100.42') {
+        return false; // Block before credentials are validated
+    }
+    return $allowed;
+});
+```
+
+Available auth events: `auth.login.before`, `auth.login.attempt`, `auth.login.success`, `auth.login.failed`, `auth.logout`, `auth.forgot_password`.
+
+### system.* — System Events
+
+```php
+// React on bootstrap — light work only
+$events->addAction('system.boot', function (): void {
+    // Load dynamic configuration
+});
+
+// Add response headers
+$events->addFilter('system.response', function (\OwnPay\Http\Response $response, \OwnPay\Http\Request $request): \OwnPay\Http\Response {
+    return $response->withHeader('X-My-Plugin', '1.0');
+});
+```
+
+Available system events: `system.boot`, `system.shutdown`, `system.request`, `system.response`, `system.middleware.pipeline`, `system.route.matched`, `system.routes.register`, `system.cron.before`, `system.cron.after`.
+
+## Practical Patterns
+
+### Pattern: Outbound HTTP on Payment Completion
+
+```php
+public function register(EventManager $events, Container $container): void
+{
+    $events->addAction('payment.transaction.completed', function (array $txn) use ($container): void {
+        $settings   = $container->get(\OwnPay\Repository\SettingsRepository::class);
+        $webhookUrl = $settings->get('plugin.my-plugin', 'webhook_url') ?? '';
+
+        if ($webhookUrl === '') {
+            return;
+        }
+
+        $ch = curl_init($webhookUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS     => json_encode([
+                'event'    => 'payment.completed',
+                'trx_id'   => $txn['trx_id']   ?? '',
+                'amount'   => $txn['amount']    ?? '',
+                'currency' => $txn['currency']  ?? '',
+            ]),
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+    }, priority: 15);
+}
+```
+
+### Pattern: Register a Custom Communication Channel
+
+```php
+$events->addFilter('communication.channels', function (array $channels): array {
+    $channels['telegram'] = [
+        'name'    => 'Telegram',
+        'handler' => [$this, 'sendTelegramMessage'],
+    ];
+    return $channels;
+});
+```
+
+### Pattern: Intercept and Modify Email Templates
+
+```php
+$events->addFilter('communication.template.render', function (string $html, array $variables): string {
+    // Append a footer to all outbound emails
+    $footer = '<p style="color:#999;font-size:12px;">Sent via My Plugin</p>';
+    return str_replace('</body>', $footer . '</body>', $html);
+});
+```
+
+### Pattern: Identify Your Plugin During Execution
+
+```php
+$events->addAction('payment.transaction.completed', function (array $txn) use ($events): void {
+    $owner = $events->getActiveOwner(); // Returns your plugin's slug
+    error_log("Hook fired by owner: {$owner}");
+});
+```
+
+## Guidelines and Constraints
+
+| Rule | Detail |
+|---|---|
+| **Register in `register()` only** | Hooks in `boot()` or the constructor bypass brand-context activation and are not attributed to your slug. |
+| **Return same type in filters** | Returning `null` from a `string` filter corrupts downstream logic. Always return the correct type. |
+| **BCMath for financial values** | `payment.amount.calculate` and `payment.fee.calculate` must use `bcadd()`/`bcmul()`/`bcdiv()`. Never cast to `float`. |
+| **Never post to the ledger from hooks** | Do not call `LedgerService::postEntries()` inside a hook. Use it from services or job runners only. |
+| **Escape all echoed HTML** | Action hooks that echo must escape user-sourced values with `htmlspecialchars($value, ENT_QUOTES, 'UTF-8')`. |
+| **No `eval()` or OS commands** | `eval`, `exec`, `shell_exec`, `system`, `passthru`, `popen`, `proc_open`, `pcntl_exec`, `dl`, `assert`, `create_function` are blocked by token scanning. |

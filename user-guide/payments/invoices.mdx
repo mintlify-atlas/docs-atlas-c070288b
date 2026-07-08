@@ -1,0 +1,168 @@
+---
+title: "Creating and Managing Customer Invoices"
+sidebarTitle: "Invoices"
+description: "Issue structured, multi-line invoices to customers in OwnPay — set amounts, currencies, due dates, and track payment status from draft through to paid."
+---
+
+Invoices in OwnPay provide a structured, itemized billing mechanism for charging customers for specific goods or services. Unlike a generic payment link, an invoice carries full line-item detail — descriptions, quantities, unit prices, a due date, and customer notes — giving both you and your customer a formal record of what is being billed. Once created, each invoice generates a unique checkout URL the customer can visit to pay using any of your configured gateways, such as bKash, Nagad, or card processors. The resulting payment is automatically recorded in your merchant ledger.
+
+## Accessing the Invoices Page
+
+1. Log in to the OwnPay admin panel.
+2. In the left sidebar under the **PAYMENTS** section, click **Invoices**.
+
+## Page Layout
+
+The invoices module is split into two views: the **Invoices List** and the **Create Invoice Form**.
+
+### Invoices List Table
+
+The list table shows all invoices issued under the active brand context:
+
+| Column | Description |
+|---|---|
+| **Invoice Number (#)** | Unique serial identifier (e.g. `INV-2026-001`). Each number must be unique within a brand. |
+| **Customer** | The registered customer assigned to this invoice. |
+| **Amount** | The computed total of all line items in the invoice currency. |
+| **Status** | Current payment lifecycle state (see [Invoice Statuses](#invoice-statuses) below). |
+| **Due Date** | Deadline for the customer to complete payment. |
+| **Actions** | **Edit** the invoice details, or **Copy Link** to copy the customer-facing checkout URL for sharing. |
+
+### Create Invoice Form
+
+Accessed by clicking **+ Create Invoice** at the top right. The form is divided into two sections:
+
+**Invoice Details** — Core metadata:
+- Invoice Number, Customer, Currency, Due Date, and customer-facing Notes.
+
+**Line Items** — Dynamic billing rows:
+- Each row contains a Description, Quantity, and Unit Price. The system automatically calculates the subtotal and total as you add or edit rows.
+
+## Invoice Statuses
+
+<Tabs>
+  <Tab title="Draft">
+    **`draft`** — The invoice has been saved but has not yet been shared with the customer. All fields can still be edited freely. Drafts do not appear in the customer's checkout until the link is explicitly shared.
+  </Tab>
+  <Tab title="Sent">
+    **`sent`** — The invoice checkout link has been shared with the customer (via the **Copy Link** action). The system considers this invoice as actively awaiting payment.
+  </Tab>
+  <Tab title="Paid">
+    **`paid`** — The customer successfully completed payment through a gateway. A corresponding transaction and ledger entry are automatically created. This is the terminal success state.
+  </Tab>
+  <Tab title="Overdue">
+    **`overdue`** — The **Due Date** has passed without successful payment. The invoice remains payable — customers can still complete checkout on an overdue invoice unless it is manually cancelled.
+  </Tab>
+  <Tab title="Cancelled">
+    **`cancelled`** — The invoice has been voided by the merchant and is no longer payable. The checkout link will show an error to customers who visit it.
+  </Tab>
+</Tabs>
+
+## Creating a New Invoice
+
+<Steps>
+  <Step title="Open the Create Invoice form">
+    Click the **+ Create Invoice** button in the top-right corner of the Invoices page.
+  </Step>
+  <Step title="Enter a unique Invoice Number">
+    Type a unique serial identifier in the **Invoice Number** field (e.g. `INV-0001` or `INV-2026-042`). The system enforces unique invoice numbers per brand — duplicates will be rejected on save.
+  </Step>
+  <Step title="Select the customer">
+    Click the **Customer** dropdown and select the registered customer you are billing. If the customer does not appear in the list, you must first add them under **People → Customers**, then return to this form.
+  </Step>
+  <Step title="Set currency and due date">
+    Choose the billing **Currency** from the dropdown (e.g. `BDT`). Then click the **Due Date** calendar picker and select the payment deadline.
+  </Step>
+  <Step title="Add a note (optional)">
+    Enter any relevant instructions in the **Notes** field — for example, bank transfer details, checkout terms, or a personalized message to the customer. This text is shown on the customer's checkout screen.
+  </Step>
+  <Step title="Add line items">
+    Under **Line Items**, fill in the first row:
+    - **Description**: A clear name for the product or service (e.g. `Premium Cloud Server Hosting`).
+    - **Quantity**: The number of units (e.g. `1`).
+    - **Amount**: The unit price (e.g. `1500.00`).
+
+    The system calculates the subtotal automatically. Click **+ Add** to insert additional rows for multi-item invoices.
+  </Step>
+  <Step title="Review the total and create">
+    Check the **Calculation Summary** at the bottom of the form to confirm the subtotal and total are correct. Click **Create Invoice** to save. You are returned to the invoices list with the new invoice in `draft` status.
+  </Step>
+</Steps>
+
+<Warning>
+  Every invoice must contain at least one line item with a non-zero quantity and amount. Invoices saved with no line items will have a total of `0.00` and cannot be processed for payment.
+</Warning>
+
+## Sharing an Invoice With a Customer
+
+<Steps>
+  <Step title="Locate the invoice">
+    Find the invoice in the list. Confirm its status is `draft` or `sent` (a `cancelled` invoice cannot be shared).
+  </Step>
+  <Step title="Copy the checkout link">
+    Under the **Actions** column, click **Copy Link**. The unique checkout URL is copied to your clipboard. The invoice status automatically transitions to `sent`.
+  </Step>
+  <Step title="Distribute to the customer">
+    Paste the checkout URL into an email, SMS message, secure chat, or any other communication channel. The customer visits the link, selects a payment method from your active gateways, and completes payment.
+  </Step>
+</Steps>
+
+<Tip>
+  Always send invoice links through a reliable, trackable channel (such as a logged corporate email) so you have a delivery record. This is useful if a customer disputes receipt of the billing request.
+</Tip>
+
+## Invoice Fields Reference
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| **Invoice Number** | Yes | — | Unique alphanumeric billing serial (e.g. `INV-0001`). Must be unique per brand. |
+| **Customer** | Yes | — | Registered customer from the People → Customers list. |
+| **Currency** | Yes | BDT | The currency in which the customer will be billed. |
+| **Due Date** | Yes | — | Calendar date by which payment is expected. |
+| **Notes** | No | — | Optional customer-facing instructions shown on the checkout screen. |
+| **Description** (line item) | Yes | — | Name or summary of the product or service on each line. |
+| **Quantity** (line item) | Yes | 1 | Number of units billed per line item. |
+| **Amount** (line item) | Yes | 0.00 | Unit price per line item. |
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Register Customers First" icon="user-plus" href="/user-guide/payments/invoices">
+    You cannot invoice an unregistered customer. Always create the customer record under **People → Customers** before opening the invoice form. This also ensures their contact details are correctly linked to the resulting transaction.
+  </Card>
+  <Card title="Never Edit Database Totals" icon="database" href="/user-guide/payments/invoices">
+    Always update invoice amounts by editing the line items and letting the system recalculate. Manually modifying database totals bypasses the recalculation logic and produces inaccurate ledger entries.
+  </Card>
+  <Card title="Track Overdue Invoices" icon="calendar-xmark" href="/user-guide/payments/invoices">
+    Regularly review invoices in `overdue` status. Follow up with customers and consider whether to extend the due date or cancel the invoice and reissue a fresh one.
+  </Card>
+  <Card title="Use Unique Invoice Numbers" icon="hashtag" href="/user-guide/payments/invoices">
+    Establish a consistent numbering convention (e.g. `INV-YYYY-NNN`) from the start. Duplicate or gap-filled invoice numbers complicate accounting reconciliation and audit trails.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| Invoice total shows `0.00 BDT` after saving | Line items were not added, or quantity/amount fields were left at zero. | Edit the invoice and enter valid quantities and unit prices for all line items. |
+| Customer does not appear in the Customer dropdown | The customer has not been registered under the active brand. | Navigate to **People → Customers**, add the customer record, then return to the invoice editor. |
+| Invoice status stuck on `sent` after customer claims to have paid | Gateway webhook did not fire, or the SMS parsing device is offline. | Check **Developer → Webhook Logs** and confirm at least one active gateway is configured. |
+| `Duplicate invoice number` error on save | An invoice with the same number already exists in this brand. | Choose a different, unique invoice number. |
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Transactions" icon="arrow-right-arrow-left" href="/user-guide/payments/transactions">
+    View the transaction created automatically when a customer pays an invoice.
+  </Card>
+  <Card title="Ledger" icon="book" href="/user-guide/payments/ledger">
+    Inspect the double-entry bookkeeping entries generated when invoice payments are processed.
+  </Card>
+  <Card title="Payment Links" icon="link" href="/user-guide/payments/payment-links">
+    For quick, non-itemized collections where a formal invoice structure is not needed.
+  </Card>
+  <Card title="Dashboard" icon="gauge" href="/user-guide/dashboard/dashboard">
+    Monitor invoice-related revenue alongside all other transaction activity.
+  </Card>
+</CardGroup>

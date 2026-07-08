@@ -1,0 +1,138 @@
+---
+title: "Branding Settings: Logos, Favicons & Site Identity"
+sidebarTitle: "Branding Settings"
+description: "Upload logos and favicons, configure brand colors, set admin panel titles, and manage SEO metadata for your OwnPay platform."
+---
+
+The Branding Settings tab controls the default visual identity across your entire OwnPay platform. From the browser-tab favicon to the site title that appears in search engine results, every element of how your platform presents itself to the world is configured here. Globally configured assets serve as the platform-wide defaults; individual brands can override these with their own logos and colors through their brand-context settings.
+
+<Info>
+  Branding assets are stored in the `op_system_settings` database table under the `branding` group key. These values are automatically injected across the admin panel and public checkout pages unless a brand-specific context overrides them.
+</Info>
+
+## Accessing Branding Settings
+
+<Steps>
+  <Step title="Log in as Super-Administrator">
+    Sign in to the OwnPay admin dashboard with your super-administrator credentials.
+  </Step>
+  <Step title="Open Settings">
+    In the left sidebar under the **SYSTEM** section, click **Settings**.
+  </Step>
+  <Step title="Select the Branding Tab">
+    Click the **Branding** tab in the Settings header navigation.
+  </Step>
+</Steps>
+
+---
+
+## Logo & Favicon Uploads
+
+<CardGroup cols={2}>
+  <Card title="Site Logo" icon="image">
+    The primary logo displayed in the admin panel header and on public pages. Recommended size: **200 × 60 px**. Accepted formats: PNG, SVG, JPEG, WebP. Use a transparent PNG or SVG for best results in both light and dark display modes.
+  </Card>
+  <Card title="Favicon" icon="star">
+    The small icon shown in browser tabs and bookmark bars. Recommended size: **32 × 32 px**. Accepted formats: ICO, PNG, SVG. Keep the file size minimal for fast page-load performance.
+  </Card>
+</CardGroup>
+
+### Uploading a Custom Logo
+
+<Steps>
+  <Step title="Navigate to Branding">
+    Go to **SYSTEM → Settings → Branding**.
+  </Step>
+  <Step title="Select the Logo File">
+    Click the **Site Logo** drag-and-drop upload box and select your logo file (e.g. `logo.png`).
+  </Step>
+  <Step title="Save">
+    Click **Save Settings** in the page footer. The logo is uploaded, stored, and immediately applied to the admin panel header.
+  </Step>
+</Steps>
+
+---
+
+## Site Identity & SEO
+
+The Site Identity section configures how your platform is described to search engines and how the admin panel is labeled in browser tabs.
+
+### Field Reference
+
+| Setting | Input Type | Example | Description |
+|---|---|---|---|
+| **Admin Panel Title** | Text | `Own Pay Admin` | Browser tab title for all administrative views. |
+| **Site Title (SEO)** | Text | `Own Pay – Secure Payments` | `<title>` tag value on the public landing page. |
+| **Site Meta Description** | Textarea | `Self-hosted payment gateway...` | 150–160 character description shown in search engine results snippets. |
+| **Site Keywords** | Text | `payment gateway, fintech` | Comma-separated meta keyword terms for search indexing. |
+| **Brand Tagline** | Text | `Payments you actually own` | Visual slogan displayed on public-facing pages. |
+
+### Updating SEO Metadata
+
+<Steps>
+  <Step title="Navigate to Branding">
+    Go to **SYSTEM → Settings → Branding**.
+  </Step>
+  <Step title="Update Identity Fields">
+    Edit the **Site Title (SEO)**, **Site Meta Description**, **Site Keywords**, and **Brand Tagline** fields with your organization's details.
+  </Step>
+  <Step title="Save">
+    Click **Save Settings**. Changes are applied to the public landing page on the next page load.
+  </Step>
+</Steps>
+
+<Note>
+  Keep the **Site Meta Description** between 150 and 160 characters. Descriptions shorter than 120 characters may be supplemented by search engines with other page content. Descriptions over 160 characters are typically truncated in search result snippets.
+</Note>
+
+---
+
+## Custom CSS Injection
+
+OwnPay supports injecting custom CSS directly into checkout page templates for per-brand visual customization beyond what the standard color fields provide. Custom CSS is managed at the brand context level through the brand's settings, not from the global Branding tab.
+
+<Accordion title="How custom CSS injection works">
+  The `BrandThemeService` resolves each brand's visual identity with field-level priority: brand-scoped settings override global defaults. Custom CSS is injected raw into Twig checkout templates via the `checkout.head` filter hook. Use this to fine-tune typography, spacing, button shapes, or custom animations for a specific brand's checkout pages.
+</Accordion>
+
+<Accordion title="Brand color fields">
+  Each brand can set a **primary color** (used for buttons, borders, and active tabs) and an **accent color** (used for highlights and secondary UI elements). These are resolved at checkout render time by `BrandThemeService::getBrandTheme($merchantId)` and applied as CSS custom properties.
+</Accordion>
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Vector Formats for Logos" icon="vector-square">
+    SVG and transparent PNG files scale without quality loss and display correctly across retina displays, dark mode, and print. Avoid JPEG for logos as it does not support transparency.
+  </Card>
+  <Card title="Keep Asset File Sizes Small" icon="compress">
+    Keep logo files under 200 KB and favicons under 10 KB. Large asset files slow page-load times for all customers visiting your checkout pages.
+  </Card>
+  <Card title="Optimize Meta Description Length" icon="align-left">
+    Write the Site Meta Description as a concise 150–160 character summary. This is the text search engines display under your URL in results pages, so make it descriptive and action-oriented.
+  </Card>
+  <Card title="Test in Dark Mode" icon="moon">
+    After uploading a logo, verify how it renders in both light and dark admin panel display modes. A transparent background is essential for dark-mode compatibility.
+  </Card>
+</CardGroup>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Landing Page Settings" icon="house" href="/user-guide/appearance/landing-page">
+    Configure hero text, CTA buttons, feature cards, and the admin login URL slug.
+  </Card>
+  <Card title="Themes" icon="paintbrush" href="/user-guide/appearance/themes">
+    Select and activate checkout visual theme plugins.
+  </Card>
+  <Card title="System Settings" icon="gear" href="/user-guide/system/settings">
+    Configure app name, base URL, timezone, and maintenance mode.
+  </Card>
+  <Card title="Custom Domains" icon="globe" href="/user-guide/system/domains">
+    Map custom hostnames to brands for full white-label checkout URLs.
+  </Card>
+</CardGroup>

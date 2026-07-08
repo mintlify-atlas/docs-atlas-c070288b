@@ -1,0 +1,132 @@
+---
+title: "Configure OwnPay After Installation"
+sidebarTitle: "First Steps"
+description: "Log in as master admin, create your first brand, configure a payment gateway, generate an API key, and create your first payment link in OwnPay."
+---
+
+With OwnPay installed and running, the next step is to configure it for real use. This page walks you through the essential actions every new installation requires — from logging in and securing your account to creating a brand, connecting a payment gateway, and generating your first API key or payment link. Plan for about 30 minutes to complete all steps.
+
+<Steps>
+  <Step title="Log In as Master Administrator">
+    Open your browser and navigate to your OwnPay login page:
+
+    ```
+    https://yourdomain.com/login
+    ```
+
+    Enter the email address and password you created during the installer wizard. After logging in, you will land on the master admin dashboard, which shows a cross-brand overview of transactions, brands, and system status.
+
+    <Warning>
+      Before doing anything else, go to your **Profile** and enable **Two-Factor Authentication (2FA)**. A payment gateway is a high-value target — protect your master admin account with a TOTP app (Google Authenticator, Authy, or 1Password) immediately.
+    </Warning>
+  </Step>
+
+  <Step title="Create Your First Brand">
+    A brand is the top-level merchant entity in OwnPay. Every customer, transaction, gateway, and staff member belongs to a brand. You must create at least one brand before you can process any payments.
+
+    1. Navigate to **People → Brands** in the left sidebar
+    2. Click **Add Brand**
+    3. Fill in the required fields:
+
+    | Field | Description |
+    |-------|-------------|
+    | **Brand Name** | The public-facing name of this merchant (e.g. "Acme Payments") |
+    | **Currency** | The default currency for this brand (USD, EUR, BDT, etc.) |
+    | **Timezone** | Used for transaction timestamps and reports |
+    | **Contact Email** | The brand's reply-to address for customer emails |
+
+    4. Click **Create Brand**
+
+    After creating the brand, you can optionally add a **logo**, configure the **color scheme**, and set a **custom domain** from the brand's settings panel. These steps are covered in detail in [Brands and Stores](/core-concepts/brands-and-stores).
+
+    <Tip>
+      If you plan to run multiple brands, create them all now before adding gateways. Gateway configuration is scoped per brand, so having all brands created first makes the setup process more efficient.
+    </Tip>
+  </Step>
+
+  <Step title="Configure a Payment Gateway">
+    A payment gateway is what connects OwnPay to an actual payment processor. Without at least one active gateway on a brand, the checkout page will have no payment methods to display.
+
+    1. Select your brand from the brand switcher (top of the admin sidebar)
+    2. Navigate to **Gateways** in the sidebar
+    3. Click **Add Gateway**
+    4. Select your payment provider from the list (e.g. Stripe, PayPal, bKash)
+    5. Enter your gateway credentials:
+       - **API Key / Public Key** — from your payment provider's dashboard
+       - **Secret Key** — keep this private; never share or log it
+       - **Merchant ID** — if required by the provider
+    6. Toggle **Test Mode** to on if you are testing (no real charges in test mode)
+    7. Select the payment methods and currencies you want to enable
+    8. Click **Save**
+
+    <Note>
+      Each gateway is scoped to the brand it is added to. If you have multiple brands, you must configure gateways separately for each. See [Gateways](/core-concepts/gateways) for a full explanation of gateway types, test mode, and plugin-based gateways.
+    </Note>
+
+    After saving, send a test transaction through the gateway to confirm it is connected correctly before switching to live mode.
+  </Step>
+
+  <Step title="Generate an API Key from the Developer Hub">
+    If you plan to integrate OwnPay programmatically — creating payment intents from your application, reading transaction data, or receiving webhooks — you need an API key scoped to a brand.
+
+    1. Make sure your brand is selected in the brand switcher
+    2. Navigate to **Developers → API Keys** (also accessible from **Developer Hub**)
+    3. Click **Generate New Key**
+    4. Give the key a descriptive label (e.g. "Production App Key" or "Mobile App Integration")
+    5. Copy both the **Public Key** and the **Secret Key** immediately — the secret key is shown only once
+
+    Store the secret key in your application's environment variables or secrets manager. Never hard-code it in source files or commit it to version control.
+
+    <Warning>
+      If you lose the secret key, you cannot recover it — you must revoke the key and generate a new pair. Treat API secrets with the same care as database passwords.
+    </Warning>
+
+    Your brand's API base URL follows this pattern:
+
+    ```
+    https://{brand_domain}/api/v1
+    ```
+
+    For example, if your brand's domain is `pay.acmecorp.com`, all API calls for that brand go to `https://pay.acmecorp.com/api/v1`.
+  </Step>
+
+  <Step title="Create a Payment Link and Share It">
+    Payment links are the fastest way to start accepting payments without writing any integration code. A payment link generates a unique checkout URL that you can share by email, SMS, or any other channel.
+
+    1. Navigate to **Payments → Payment Links**
+    2. Click **Create Payment Link**
+    3. Fill in the payment details:
+       - **Amount** — Fixed amount or leave blank to let the customer enter an amount
+       - **Currency** — Defaults to your brand's currency
+       - **Description** — What the payment is for (shown on the checkout page)
+       - **Customer Email** — Optional; pre-fills the checkout form
+       - **Redirect URL** — Where the customer is sent after a successful payment
+    4. Click **Create**
+    5. Copy the generated link and share it with your customer
+
+    The link opens a white-labeled checkout page hosted on your OwnPay installation. The customer selects a gateway, completes the payment, and is redirected to your specified URL.
+
+    <Tip>
+      Use payment links to validate your gateway configuration end-to-end before building an API integration. A successful test payment confirms your gateway credentials, cron job, and webhook delivery are all working correctly.
+    </Tip>
+  </Step>
+</Steps>
+
+## What to Do Next
+
+With a brand configured, a gateway connected, and your first payment link or API key ready, your OwnPay installation is operational. The following resources cover the next layer of configuration and integration.
+
+<CardGroup cols={2}>
+  <Card title="User Guide" icon="book-open" href="/core-concepts/brands-and-stores">
+    Learn how to manage brands, staff, customers, gateways, and reports through the admin panel.
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/core-concepts/payment-flow">
+    Understand the payment lifecycle, RBAC model, webhook architecture, and gateway system before building your integration.
+  </Card>
+  <Card title="User Roles and Permissions" icon="shield-halved" href="/core-concepts/user-roles-permissions">
+    Invite staff members, create custom roles, and scope access to specific brands.
+  </Card>
+  <Card title="Webhooks and Events" icon="bell" href="/core-concepts/webhooks-events">
+    Configure your application to receive real-time payment notifications via HMAC-signed webhook payloads.
+  </Card>
+</CardGroup>

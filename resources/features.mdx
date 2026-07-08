@@ -1,0 +1,189 @@
+---
+title: "OwnPay Features and Capabilities Reference"
+sidebarTitle: "Features"
+description: "Complete reference of every OwnPay capability: payment processing, multi-brand management, plugin system, ledger, SMS, security, white-labeling, and developer tools."
+---
+
+OwnPay ships with a remarkably broad feature set for a self-hosted platform — 123 built-in payment gateways, a double-entry ledger engine, white-label custom-domain checkout, a sandboxed plugin system, full RBAC, AES-256-GCM encryption at rest, and a mobile SMS verification subsystem — all in a single PHP 8.3 application with no framework runtime dependency. This page catalogs every capability organized by category.
+
+## Flagship: Sovereign White-Label Architecture
+
+OwnPay is the **first self-hosted payment platform** to implement a full white-label, multi-brand, custom-domain checkout architecture on a single installation. What this means in practice:
+
+- **One server, one installation** — owned by one super-admin.
+- **Unlimited brands** — each is a fully isolated entity with its own custom domain, logo, color scheme, gateways, customers, and ledger accounts.
+- **Invisible infrastructure** — customers land on `pay.yourbrand.com` and see only the brand's identity. There is no OwnPay mention unless the brand explicitly adds one.
+- **Admin panel stays private** — `/admin/*` paths return 404 on all custom brand domains.
+- **Complete data isolation** — every record is scoped per brand via `merchant_id`. Zero data bleed between brands.
+
+<CardGroup cols={2}>
+  <Card title="Payment Processing" icon="credit-card">
+    Payment intents, multi-currency checkout, auto currency conversion, token-based checkout URLs, status polling, manual verification, and 13 transaction statuses from `pending` to `disputed`.
+  </Card>
+  <Card title="Multi-Brand Management" icon="building">
+    Unlimited brands, per-brand settings, brand isolation via `merchant_id`, custom domain mapping with DNS TXT verification, brand deactivation without data loss.
+  </Card>
+  <Card title="Developer Tools" icon="code">
+    REST API (37+ endpoints), HMAC-SHA256 signed webhooks, webhook retry with exponential backoff, developer hub in the admin UI, webhook tester, API key management, and a health check endpoint.
+  </Card>
+  <Card title="Plugin System" icon="plug">
+    Gateway, Theme, and Addon plugin types. Manifest-based discovery, static code audit (blocks `exec`, `eval`, raw PDO), per-brand activation, plugin migrations, and settings UIs.
+  </Card>
+  <Card title="Financial Controls" icon="scale-balanced">
+    GAAP double-entry ledger with bcmath precision, automatic posting for payments and refunds, trial balance, balance verification cron job, and full CSV export.
+  </Card>
+  <Card title="Mobile SMS" icon="mobile">
+    Paired device app, SMS forwarding via mobile companion, regex + heuristic SMS parser, confidence-scored transaction matching, and a regex tester in the admin UI.
+  </Card>
+  <Card title="Security" icon="shield-halved">
+    AES-256-GCM PII encryption, Argon2id password hashing, RBAC with granular permissions, TOTP two-factor authentication, CSRF protection, CSP with per-request nonce, SSRF guards, and rate limiting.
+  </Card>
+  <Card title="White-Labeling" icon="paintbrush">
+    Per-brand logo, favicon, primary/accent colors, custom CSS and JS injection, custom footer text, theme plugins, and a brand URL builder that never leaks the installation domain.
+  </Card>
+</CardGroup>
+
+## Payment & Transaction Engine
+
+### Payment Gateway System
+
+<Accordion title="123 Built-In Payment Gateways">
+  OwnPay ships adapters for a comprehensive global set of providers:
+
+  - **Global cards:** Stripe, Adyen, Braintree, Authorize.net, Square, Worldpay, Cybersource, Checkout.com, Shift4, NMI, Moneris
+  - **Wallets:** Apple Pay, Google Pay, Alipay, PayPal
+  - **Mobile financial services:** bKash, Nagad, M-Pesa, MTN MoMo, GCash, Dana, GrabPay, PhonePe
+  - **Buy-now-pay-later:** Klarna
+  - **Crypto:** Coinbase Commerce, BTCPay, Bitpay
+  - **Regional platforms:** Razorpay, Cashfree, CCAvenue, PayU, Flutterwave, Paystack, MyFatoorah, Midtrans, Xendit, Rapyd, dLocal, Mercado Pago, Tap, Toss, Trustly, Przelewy24, Neteller, Skrill, Wise, GoCardless, 2checkout, Amazon Pay, and more
+
+  Every gateway lives in `modules/gateways/{slug}/`. Add new providers without touching core.
+</Accordion>
+
+<Accordion title="Payment Intent Lifecycle">
+  Payment intents move through a well-defined set of states:
+
+  `pending → processing → completed / failed / cancelled / expired`
+
+  Key properties: unique token, amount, currency, expiry, and metadata. The checkout URL contains only a secure token — amount and gateway details are never exposed in the URL. A cron job auto-expires stale intents and fires lifecycle hooks.
+</Accordion>
+
+<Accordion title="Transaction Statuses">
+  OwnPay tracks 13 transaction statuses: `pending`, `created`, `processing`, `callback_processing`, `completed`, `failed`, `cancelled`, `expired`, `refunded`, `disputed`, `awaiting_verification`, `pending_review`. Super-admins can manually override status with a full audit trail.
+</Accordion>
+
+<Accordion title="Refunds">
+  Partial and full refunds are supported. Refund requests are routed to the same gateway that processed the original payment. Each refund is posted as a balanced debit/credit pair in the double-entry ledger. `RefundReconciliationJob` syncs refund status from gateway APIs on a schedule.
+</Accordion>
+
+<Accordion title="Payment Links and Invoices">
+  **Payment links** are reusable shareable URLs with configurable amounts (fixed or variable), custom fields, usage limits, and expiration dates.
+
+  **Invoices** support line items (description, quantity, unit price) with auto-calculated subtotal, tax, discount, and total. Customers pay via a public URL at `/invoice/{token}`.
+</Accordion>
+
+## Financial Controls
+
+### Double-Entry Ledger
+
+Every financial event posts a balanced debit/credit pair. The ledger is GAAP-compliant:
+
+- Assets and Expenses increase on debit
+- Liabilities, Equity, and Revenue increase on credit
+- All monetary math uses **bcmath strings** — floats are prohibited
+- `BalanceVerificationJob` cross-checks ledger balances against gateway-reported balances daily
+- The ledger supports multi-currency accounts (separate accounts per currency per brand)
+
+<Warning>
+  Never bypass `LedgerService::postEntries()` to write directly to `op_ledger_entries`. The service enforces balanced journals using `bccomp()` and guards against double-posting with `SELECT ... FOR UPDATE`.
+</Warning>
+
+### Fee Rules
+
+Fees are applied automatically by `FeeService` before ledger posting. Supported rule types:
+
+| Type | Description |
+|---|---|
+| Flat fee | Fixed amount per transaction |
+| Percentage fee | Percentage of transaction value |
+| Tiered fee | Different rates per amount bracket |
+| Min/max caps | Floor and ceiling on computed fee |
+
+Rules can be scoped per brand, per gateway, or as a system-wide fallback.
+
+## Webhooks & Developer Tools
+
+### Webhooks
+
+| Feature | Detail |
+|---|---|
+| HMAC-SHA256 signing | Each delivery signed with `X-OwnPay-Signature`; receivers validate using the brand's webhook secret |
+| Retry with backoff | Failed deliveries retried at 5 min → 15 min → 1 hr → 6 hr → 12 hr → 24 hr intervals |
+| Dead letter queue | Permanently failed webhooks queued for manual replay from the admin UI |
+| Inbound deduplication | Gateway callbacks deduplicated by payload hash — idempotent processing |
+| Unified endpoint | `POST /webhook/{gateway}` handles callbacks from all 123 gateways |
+
+### REST API
+
+| Layer | Prefix | Auth |
+|---|---|---|
+| Merchant API | `/api/v1/*` | Bearer API key (read/write scopes) |
+| Mobile Companion API | `/api/mobile/v1/*` | JWT (after device pairing) |
+| Admin API | `/api/admin/v1/*` | Bearer API key (admin scope) |
+
+## Mobile Companion & SMS Automation
+
+### Device Pairing
+
+Admin generates an OTP; the companion app (Android/iOS) exchanges it for a JWT and AES session key. Multiple devices can be paired simultaneously. Devices send periodic heartbeats; the server tracks online/offline status and pushes notifications for `transaction.completed`, `refund.issued`, and `dispute.filed` events.
+
+### SMS-Based Payment Verification
+
+<Steps>
+  <Step title="SMS Received">
+    A paired mobile device forwards an incoming SMS to `POST /api/mobile/v1/sms`.
+  </Step>
+  <Step title="Parse SMS">
+    `SmartSmsAnalyzer` applies a per-gateway regex template first, then falls back to a heuristic parser. Both methods produce a confidence score.
+  </Step>
+  <Step title="Match Transaction">
+    The parsed amount and transaction ID are matched against pending transactions. Ambiguous matches (two pending transactions of the same amount) are refused.
+  </Step>
+  <Step title="Confirm Payment">
+    On a successful match, the pending manual gateway transaction is marked as complete and the ledger is updated.
+  </Step>
+</Steps>
+
+## Security & Administration
+
+### Authentication & Access Control
+
+| Feature | Detail |
+|---|---|
+| TOTP two-factor authentication | RFC 6238 via any authenticator app; per-staff enable/disable |
+| RBAC | Custom roles per brand with granular permission assignment |
+| Bearer API keys | Scoped (`read` / `write` / `admin`) with last-used tracking and revocation |
+| IP allowlist | Optional IP-based restriction for admin routes |
+| Login throttling | Strict bucket for login, 2FA, and password reset endpoints |
+
+### PII Encryption
+
+Customer fields (name, email, phone) are encrypted at rest using AES-256-GCM. Email and phone are also stored as a hash for fast lookup without decryption. Gateway API credentials are encrypted with the same scheme.
+
+### Audit Log
+
+Every action is logged with actor, entity, old/new values, IP address, and timestamp. Each log entry is **cryptographically signed** to detect post-creation tampering. An admin can run an integrity scan to surface any modified entries.
+
+## Platform Numbers
+
+| Metric | Value |
+|---|---|
+| Built-in payment gateways | 123 |
+| Database tables | 48 |
+| REST API endpoints | 37+ |
+| Web routes | 120+ |
+| Scheduled cron jobs | 9 |
+| Middleware components | 16 |
+| Supported currencies | 180+ |
+| PHP required | 8.3+ |
+| License | AGPL-3.0 |

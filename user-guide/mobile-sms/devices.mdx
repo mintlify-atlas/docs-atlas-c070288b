@@ -1,0 +1,121 @@
+---
+title: "Pairing Android Devices for SMS Gateway Automation"
+sidebarTitle: "Paired Devices"
+description: "Pair Android phones running the OwnPay SMS Agent app to automatically forward mobile banking SMS alerts for real-time payment confirmation."
+---
+
+OwnPay's SMS gateway feature turns Android smartphones into real-time payment verification agents. When a customer makes a transfer through a mobile wallet such as bKash, Nagad, or Rocket, the wallet provider sends an SMS confirmation to the registered phone number. A paired Android device running the OwnPay Companion App intercepts that SMS, forwards it to the OwnPay server, and the platform's parsing engine extracts the transaction details to automatically confirm the matching pending payment. This eliminates the need for manual payment approval on every wallet transfer.
+
+## Navigating to Paired Devices
+
+In the OwnPay admin dashboard, expand the **MOBILE & SMS** section in the left sidebar and click **Paired Devices**. The device management dashboard opens with connection KPI cards and the devices table.
+
+## Device Requirements
+
+Before pairing, ensure the Android device meets the following requirements:
+
+<CardGroup cols={2}>
+  <Card title="Android 8.0 or higher" icon="android" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
+    The OwnPay Companion App requires Android 8.0 (Oreo, API level 26) or later. Lower Android versions do not support the persistent background service architecture the app relies on.
+  </Card>
+  <Card title="OwnPay SMS Agent app installed" icon="mobile-screen" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
+    The OwnPay Companion App must be installed from the OwnPay distribution channel. It requires SMS read permission and must be excluded from battery optimisation to run reliably in the background.
+  </Card>
+  <Card title="SMS permissions granted" icon="envelope" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
+    The app must be granted permission to read incoming SMS messages. Without this permission, incoming wallet notifications will not be forwarded to the server.
+  </Card>
+  <Card title="Battery optimisation disabled" icon="battery-full" href="/user-guide/mobile-sms/devices#pairing-a-new-device">
+    Android's battery optimisation will pause background services on idle devices. Exclude the OwnPay Companion App from battery optimisation in the device's power management settings.
+  </Card>
+</CardGroup>
+
+## Dashboard Overview
+
+The Paired Devices dashboard provides three KPI summary cards at the top of the page:
+
+| Card | Description |
+|---|---|
+| **Total Devices** | The lifetime count of mobile devices that have been paired with this brand. |
+| **Active** | Devices currently authorised and sending SMS data to the server. |
+| **Revoked** | Devices whose session keys have been manually invalidated by an administrator. |
+
+## Pairing a New Device
+
+<Steps>
+  <Step title="Open the pairing wizard">
+    On the Paired Devices page, click the **Pair New Device** button to expand the pairing wizard panel.
+  </Step>
+  <Step title="Generate a pairing code">
+    Click **Generate Pairing Code**. OwnPay creates a cryptographically secure **6-digit numeric token** (e.g. `240977`). This code is valid for **5 minutes** — the countdown timer is displayed next to the code.
+  </Step>
+  <Step title="Open the OwnPay Companion App on your Android device">
+    Ensure SMS permission is enabled on the device. Open the OwnPay Companion App and tap **Pair with Admin**.
+  </Step>
+  <Step title="Enter the pairing code in the app">
+    Type the 6-digit code displayed in the admin panel into the pairing code field in the Companion App, then tap **Confirm**.
+  </Step>
+  <Step title="Verify the device appears in the table">
+    Return to the admin panel. The Connected Devices table will refresh and your device will appear with an `Active` status badge. The **Paired** column shows the date and time of successful pairing.
+  </Step>
+</Steps>
+
+<Warning>
+  Pairing codes expire after 5 minutes. If the countdown reaches zero before the code is entered in the Companion App, click **Generate Pairing Code** again to create a fresh token. Never share pairing codes in public channels or unsecured messages — they represent a temporary authentication credential for your payment system.
+</Warning>
+
+## Connected Devices Table
+
+The devices table provides live status for every paired handset:
+
+| Column | Description |
+|---|---|
+| **Device** | The device name and hardware fingerprint registered during pairing. |
+| **Platform** | Android OS version and SDK level (e.g. `Android 13, SDK 33`). |
+| **Status** | `Active` (online and forwarding SMS), `Offline` (not responding to heartbeat pings), or `Revoked` (session invalidated). |
+| **Last Seen** | Timestamp of the most recent heartbeat ping received from the device. |
+| **Paired** | Date and time the device was successfully paired. |
+| **Actions** | **Revoke** permanently disables this device's authentication credentials. |
+
+## Device Status Indicators
+
+<Tabs>
+  <Tab title="Active">
+    The device is online, has SMS permission enabled, and is actively forwarding incoming messages to the OwnPay server. The **Last Seen** timestamp will update every few minutes as the app sends regular heartbeat pings.
+  </Tab>
+  <Tab title="Offline">
+    The device has not sent a heartbeat ping within the expected interval. Common causes include: the device being powered off, the app being killed by battery optimisation, or a loss of internet connectivity on the handset. Check the physical device and verify battery optimisation exclusions are in place.
+  </Tab>
+  <Tab title="Revoked">
+    An administrator manually invalidated this device's JWT token. The device can no longer forward SMS messages to the server. Revoked devices remain visible in the table for audit purposes but their API credentials are permanently deleted.
+  </Tab>
+</Tabs>
+
+## Revoking a Lost or Unused Device
+
+If a paired device is lost, stolen, decommissioned, or replaced:
+
+<Steps>
+  <Step title="Locate the device in the table">
+    Find the device entry in the Connected Devices table using its name or hardware fingerprint.
+  </Step>
+  <Step title="Click Revoke">
+    Click the **Revoke** button under the **Actions** column for that device.
+  </Step>
+  <Step title="Confirm the revocation">
+    Confirm the prompt. The device's status immediately changes to `Revoked`, and its server-side JWT token is deleted. Even if the physical device still has the Companion App installed, it can no longer communicate with the OwnPay server.
+  </Step>
+  <Step title="Pair a replacement device if needed">
+    If you are replacing the device, generate a new pairing code and follow the pairing steps above for the replacement handset.
+  </Step>
+</Steps>
+
+<Tip>
+  Give each device a descriptive name in the Companion App before pairing — for example, "bKash Phone - Office" or "Nagad Device 2". Recognisable names make it much easier to manage multiple devices and quickly identify which one to revoke in an emergency.
+</Tip>
+
+## Unpairing vs. Revoking
+
+| Action | Effect | Reversible? |
+|---|---|---|
+| **Revoke** (from admin panel) | Deletes the device's server-side JWT token immediately. The device cannot forward SMS until re-paired. | Yes — re-pair the device with a new pairing code. |
+| **Uninstall app** (from device) | Removes the Companion App from the handset but does not immediately revoke the server token. | Revoke from admin panel to clean up the entry. |

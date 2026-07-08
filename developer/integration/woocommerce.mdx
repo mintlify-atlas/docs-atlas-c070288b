@@ -1,0 +1,291 @@
+---
+title: "OwnPay WooCommerce Plugin Integration Guide for Stores"
+sidebarTitle: "WooCommerce"
+description: "Install and configure the OwnPay gateway plugin for WordPress WooCommerce. Covers setup, API key entry, webhook configuration, and order status mapping."
+---
+
+The OwnPay Gateway Plugin for WooCommerce connects your WordPress store to your self-hosted OwnPay instance with no custom code. When a customer checks out, the plugin creates a payment intent via the OwnPay REST API, redirects the customer to OwnPay's hosted checkout page, and automatically updates WooCommerce order statuses in response to webhook events — all out of the box.
+
+## How It Works
+
+```
+Customer Checkout
+       │
+       ▼
+WooCommerce Order Created
+       │
+       ▼
+OwnPay Plugin → POST /api/v1/payment-intents
+       │
+       ▼
+Customer Redirected → OwnPay Checkout Page
+       │
+       ▼
+Payment Completed / Failed
+       │
+       ▼
+OwnPay Webhook → WooCommerce Order Status Updated
+```
+
+## Prerequisites
+
+Before installing the plugin, confirm the following:
+
+| Requirement | Minimum Version |
+|---|---|
+| WordPress | 6.0+ |
+| WooCommerce | 8.0+ |
+| PHP | 8.2+ |
+| OwnPay instance | Self-hosted, reachable over HTTPS |
+
+You also need an OwnPay API key with `write` scope. Generate one in **OwnPay Admin → Developer Hub → API Keys**.
+
+---
+
+## Installation
+
+<Steps>
+
+### Download the Plugin
+
+Download the latest plugin ZIP from the [OwnPay WordPress GitHub Releases](https://github.com/own-pay/OwnPay-WordPress/releases/) page. Choose the most recent stable release.
+
+### Install in WordPress
+
+<Tabs>
+  <Tab title="Upload ZIP (Recommended)">
+    1. In your WordPress admin, navigate to **Plugins → Add New → Upload Plugin**.
+    2. Click **Choose File** and select the downloaded ZIP.
+    3. Click **Install Now**.
+    4. Click **Activate Plugin** once installation completes.
+  </Tab>
+  <Tab title="WP-CLI">
+    If you have WP-CLI access to your server, run:
+
+    ```bash
+    wp plugin install ownpay-woocommerce --activate
+    ```
+  </Tab>
+</Tabs>
+
+### Configure the Gateway
+
+1. Go to **WooCommerce → Settings → Payments**.
+2. Locate **OwnPay** in the payment methods list and click **Manage**.
+3. Fill in all required fields:
+
+| Field | Description |
+|-------|-------------|
+| **Enable/Disable** | Toggle to show OwnPay at checkout |
+| **Title** | Label shown to customers (e.g. `Pay with OwnPay`) |
+| **Description** | Short description on the checkout page |
+| **API Base URL** | Your OwnPay instance URL (e.g. `https://pay.yourdomain.com`) |
+| **API Key** | Your OwnPay API key from **Admin → Developer Hub** |
+| **Brand ID** | Your OwnPay brand or store ID |
+| **Webhook Secret** | Secret key for verifying incoming webhooks (set this after Step 4) |
+| **Test Mode** | Enable to run transactions against the sandbox |
+
+4. Click **Save Changes**.
+
+### Configure Webhooks in OwnPay
+
+The plugin needs to receive webhook events to update order statuses automatically.
+
+1. Log in to your OwnPay admin panel.
+2. Navigate to **Developer Hub → Webhooks → Add Endpoint**.
+3. Enter your WooCommerce webhook URL:
+
+```
+https://yourstore.com/?wc-api=ownpay_gateway
+```
+
+4. Select the following events:
+   - `payment.transaction.completed`
+   - `payment.transaction.failed`
+   - `payment.transaction.cancelled`
+
+5. Copy the generated **Webhook Secret**.
+6. Paste the secret into **WooCommerce → Settings → Payments → OwnPay → Webhook Secret**.
+7. Click **Save Changes**.
+
+<Warning>
+The Webhook Secret is shown only once. Copy it immediately and store it in a secure location before navigating away.
+</Warning>
+
+</Steps>
+
+---
+
+## Order Status Mapping
+
+OwnPay payment events are automatically mapped to WooCommerce order statuses:
+
+| OwnPay Event | WooCommerce Status |
+|---|---|
+| `payment.transaction.completed` | `processing` (or `completed` for virtual/downloadable products) |
+| `payment.transaction.failed` | `failed` |
+| `payment.transaction.cancelled` | `cancelled` |
+| `payment.intent.expired` | `cancelled` |
+
+---
+
+## Testing Your Integration
+
+<Steps>
+
+### Enable Test Mode
+
+In **WooCommerce → Settings → Payments → OwnPay**, toggle **Test Mode** on and click **Save Changes**.
+
+Test mode connects to the OwnPay sandbox environment. Transactions process without real money, but all webhooks and order status transitions fire exactly as in production.
+
+### Place a Test Order
+
+Add a product to your cart and proceed to checkout. Select **OwnPay** as the payment method and complete the order. You'll be redirected to the OwnPay sandbox checkout.
+
+| Field | Test Value |
+|-------|------------|
+| Test API Key | Available in **OwnPay Admin → Developer Hub → Test Keys** |
+| Test Checkout | Triggered automatically when Test Mode is enabled |
+
+### Verify Webhook Delivery
+
+After completing a test payment:
+1. Check the WooCommerce order — its status should have changed to `processing`.
+2. Go to **WooCommerce → Status → Logs** and filter by `ownpay` to see plugin log entries.
+3. In OwnPay Admin, check **Developer Hub → Webhooks → Delivery Log** to confirm a `200` response from your store.
+
+### Go Live
+
+When you're satisfied with the integration:
+1. Disable **Test Mode** in the plugin settings.
+2. Replace the test API key with your production key from **OwnPay Admin → Developer Hub → API Keys**.
+3. Click **Save Changes**.
+
+</Steps>
+
+---
+
+## Customization
+
+The plugin exposes WordPress filters for advanced customization without modifying plugin files directly.
+
+### Customize the Redirect URL
+
+Add query parameters or a custom path to the OwnPay checkout redirect:
+
+```php
+add_filter('ownpay_redirect_url', function (string $url, \WC_Order $order): string {
+    return add_query_arg('ref', $order->get_order_key(), $url);
+}, 10, 2);
+```
+
+### Customize the Payment Intent Payload
+
+Attach additional metadata to every payment intent — useful for customer segmentation, analytics, or order notes:
+
+```php
+add_filter('ownpay_payment_intent_payload', function (array $payload, \WC_Order $order): array {
+    $payload['metadata']['wc_order_id']    = $order->get_id();
+    $payload['metadata']['customer_note']  = $order->get_customer_note();
+    return $payload;
+}, 10, 2);
+```
+
+### Override Completed Order Status
+
+By default, completed payments set orders to `processing`. Override this per order type:
+
+```php
+add_filter('ownpay_completed_order_status', function (string $status, \WC_Order $order): string {
+    // Mark downloadable orders as completed immediately
+    if ($order->has_downloadable_item()) {
+        return 'completed';
+    }
+    return $status;
+}, 10, 2);
+```
+
+---
+
+## Webhook Signature Verification
+
+The plugin verifies every incoming webhook using HMAC-SHA256 before updating any order. The verification logic the plugin runs internally:
+
+```php
+// Performed automatically by the plugin on every incoming webhook:
+$signature = hash_hmac('sha256', $rawBody, $webhookSecret);
+if (!hash_equals($signature, $_SERVER['HTTP_X_OWNPAY_SIGNATURE'])) {
+    status_header(401);
+    exit('Invalid signature');
+}
+```
+
+Ensure the Webhook Secret in OwnPay Admin matches the value entered in WooCommerce settings exactly — including no leading or trailing whitespace.
+
+---
+
+## Troubleshooting
+
+### Webhooks Not Received
+
+<Steps>
+
+### Verify endpoint reachability
+Confirm `https://yourstore.com/?wc-api=ownpay_gateway` is publicly accessible over the internet (not behind a VPN or local network).
+
+### Check WooCommerce logs
+Go to **WooCommerce → Status → Logs** and filter by `ownpay` to see plugin-level error messages.
+
+### Verify the Webhook Secret
+Confirm the secret in **WooCommerce → Settings → Payments → OwnPay** exactly matches the one shown in **OwnPay Admin → Developer Hub → Webhooks**.
+
+### Confirm event selection
+In OwnPay Admin, open the webhook endpoint and confirm `payment.transaction.completed`, `payment.transaction.failed`, and `payment.transaction.cancelled` are all selected.
+
+</Steps>
+
+### Orders Stuck in "Pending Payment"
+
+This typically means the webhook was not delivered. You can manually sync an order's payment status:
+
+**Via WooCommerce Admin:**
+1. Open the order in the WooCommerce order detail view.
+2. Click **OwnPay → Sync Payment Status** in the order meta box.
+
+**Via WP-CLI:**
+
+```bash
+wp ownpay sync-order --order-id=1234
+```
+
+### SSL / cURL Errors
+
+If your OwnPay instance uses a self-signed certificate (common in local development), add this to `wp-config.php`:
+
+```php
+define('OWNPAY_VERIFY_SSL', false);
+```
+
+<Warning>
+Only disable SSL verification in local or development environments. Never use this setting in production — it exposes your store to man-in-the-middle attacks.
+</Warning>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="PHP Integration" icon="php" href="/developer/integration/php">
+    Build a custom PHP integration if you need more control than the plugin provides.
+  </Card>
+  <Card title="Node.js Integration" icon="node" href="/developer/integration/nodejs">
+    Integrate OwnPay into a headless or custom Node.js storefront.
+  </Card>
+  <Card title="Webhooks Guide" icon="webhook" href="/developer/webhooks">
+    Understand all webhook events, retry logic, and delivery logs.
+  </Card>
+  <Card title="OwnPay Plugin Marketplace" icon="store" href="https://plugins.ownpay.org">
+    Browse additional OwnPay plugins and gateway extensions.
+  </Card>
+</CardGroup>

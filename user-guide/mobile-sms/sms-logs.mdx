@@ -1,0 +1,125 @@
+---
+title: "SMS Match Logs — Monitoring Forwarded Payment Messages"
+sidebarTitle: "SMS Logs"
+description: "View all SMS messages forwarded from paired Android devices, inspect match status, manually confirm unmatched payments, and troubleshoot parsing failures."
+---
+
+The SMS Logs page (labelled **SMS Data** in the sidebar) is the live audit trail for every text message that has been forwarded from your paired Android devices to the OwnPay server. It tells you at a glance whether each message was successfully parsed and matched to a pending transaction, is still awaiting processing, or failed to match any template. When a customer contacts you to report that their manual wallet payment was not confirmed, the SMS Logs page is the first place to look — the raw message is almost certainly there, waiting for your review.
+
+## Navigating to SMS Logs
+
+In the OwnPay admin dashboard, expand the **MOBILE & SMS** section in the left sidebar and click **SMS Data**. The logs table loads, showing the most recently received messages at the top.
+
+## What the Logs Show
+
+Every incoming SMS forwarded from a paired device is captured and stored as a log entry, regardless of whether a matching template exists. The log records:
+
+- The raw sender identifier and message content
+- The extracted amount and Transaction ID (if parsing succeeded)
+- Which template and gateway the message was matched to
+- The final match status
+- The exact timestamp the message was received by the server
+
+This makes SMS Logs both a diagnostic tool and a verification receipt — you can prove that a specific payment notification arrived at a specific time, even if auto-matching failed.
+
+## Log Status Filters
+
+Use the **Match Filters** dropdown above the table to isolate entries by their current state:
+
+<Tabs>
+  <Tab title="All">
+    Shows every forwarded SMS regardless of match outcome. Use this view for a full audit of all device activity, including spam messages that were correctly ignored.
+  </Tab>
+  <Tab title="Matched">
+    Shows only SMS messages that were successfully parsed and matched to a pending transaction. These payments were automatically confirmed and their transaction status updated to `completed`.
+  </Tab>
+  <Tab title="Unmatched">
+    Shows SMS messages that were parsed but whose extracted Transaction ID did not correspond to any open checkout on the server. This often means the customer entered a wrong Transaction ID at checkout, or the payment was made after the checkout session expired.
+  </Tab>
+  <Tab title="Pending">
+    Shows SMS messages that have been received but not yet processed — either because no matching template has been defined for the sender, or because the parsing job is still queued.
+  </Tab>
+</Tabs>
+
+## Log Table Columns
+
+| Column | Description |
+|---|---|
+| **Sender** | The source phone number or sender identifier extracted from the SMS "From" field (e.g. `NAGAD`, `bKash`). |
+| **Amount** | The payment amount extracted from the message body by the matched template's Amount Regex. Shown in the gateway's currency format. |
+| **Trx ID** | The unique Transaction ID extracted from the message body by the template's TrxID Regex. |
+| **Gateway** | The manual gateway slug associated with the template that matched this message (e.g. `nagad-personal`). |
+| **Status** | A colour-coded badge — `matched` (green), `unmatched` (red), or `pending` (yellow). |
+| **Received** | The exact timestamp (date and time) when the OwnPay server received the forwarded message from the paired device. |
+
+## Understanding Match Statuses
+
+| Status | Meaning |
+|---|---|
+| `matched` | The Transaction ID extracted from the SMS was found in a `pending` transaction record on the server. The transaction has been automatically marked `completed` and the ledger updated. |
+| `unmatched` | The SMS was parsed successfully, but the extracted Transaction ID did not correspond to any active checkout transaction. The payment was not auto-confirmed. |
+| `pending` | The SMS has been received and stored but has not yet been processed. This may indicate a missing or inactive template for the sender, or a processing queue delay. |
+
+## Resolving a Customer's Missing Payment
+
+When a customer reports that their wallet payment was not confirmed, follow this workflow:
+
+<Steps>
+  <Step title="Ask for their Transaction ID and sender details">
+    Request the Transaction ID (TrxID) visible on the customer's wallet receipt, the sending phone number or wallet name (e.g. bKash or Nagad), and the approximate time of transfer.
+  </Step>
+  <Step title="Filter SMS Logs by Unmatched or Pending">
+    Open **Mobile & SMS → SMS Data** and set the filter to **Unmatched** or **Pending** to narrow results to messages that did not auto-confirm.
+  </Step>
+  <Step title="Locate the customer's forwarded SMS">
+    Scan the **Trx ID** and **Sender** columns for the customer's transaction details. The **Received** timestamp helps narrow the search to the correct time window.
+  </Step>
+  <Step title="Verify amount and transaction match">
+    Confirm that the **Amount** in the log entry matches the expected checkout total, and that the **Trx ID** matches what the customer's wallet receipt shows.
+  </Step>
+  <Step title="Manually approve the transaction">
+    If the SMS log confirms the correct payment was received, navigate to **Payments → Transactions**, locate the matching pending transaction, and click **Approve** to complete it manually.
+  </Step>
+  <Step title="Fix the root cause in SMS Templates">
+    After manually approving, open **Mobile & SMS → SMS Centre** and review the parsing template for this gateway. Run the failing SMS content through the **Live Regex Tester** to identify why the auto-match failed, then update the template's regex patterns accordingly.
+  </Step>
+</Steps>
+
+<Tip>
+  A high volume of `unmatched` entries from a specific gateway often indicates that the wallet provider has changed their SMS format — a common occurrence after app updates. Compare a recent unmatched message body against your template's regex patterns using the Live Regex Tester and update the extraction patterns as needed.
+</Tip>
+
+## Troubleshooting Unmatched SMS
+
+<Accordion title="The Trx ID matches but the transaction still shows as unmatched">
+  Check whether the checkout session for that transaction has already expired. OwnPay only matches SMS messages against transactions in `pending` state — if the checkout timer ran out before the SMS arrived, the transaction will have transitioned to `expired` and is no longer available for automatic matching. Approve it manually in the Transactions panel.
+</Accordion>
+
+<Accordion title="No SMS log entries are appearing at all">
+  The paired device is likely offline or the Companion App's background service has been paused by Android battery optimisation. Check the **Paired Devices** page and confirm the device's **Status** is `Active` and its **Last Seen** timestamp is recent. On the physical device, verify that the app is excluded from battery optimisation and that SMS permission is still granted.
+</Accordion>
+
+<Accordion title="SMS messages appear as Pending and never progress">
+  Pending status means no active template matched the message's sender pattern. Open **Mobile & SMS → SMS Centre** and check whether a template exists for the sender shown in the log. If one exists, verify its **Status** is `Active` and that the Sender Pattern exactly matches (case-sensitively) the Sender value in the log entry.
+</Accordion>
+
+<Accordion title="Spam or unrelated SMS messages are appearing in the logs">
+  This is expected behaviour. The Companion App forwards all SMS messages received on the device to maintain a complete audit trail. Unrelated messages will appear as `unmatched` and do not affect payment processing. Filter the view to **Matched** to focus only on payment-related entries.
+</Accordion>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Monitor unmatched logs regularly" icon="magnifying-glass" href="/user-guide/mobile-sms/sms-logs#log-status-filters">
+    Review unmatched entries daily during the first week after deploying a new manual gateway. Early detection of regex mismatches lets you fix template patterns before many customers are affected.
+  </Card>
+  <Card title="Never delete SMS log records" icon="shield-check" href="/user-guide/mobile-sms/sms-logs#what-the-logs-show">
+    SMS log entries serve as physical payment verification receipts. Only delete them during planned system maintenance. Removing records prematurely eliminates your ability to investigate disputed transactions.
+  </Card>
+  <Card title="Verify before manually approving" icon="circle-check" href="/user-guide/mobile-sms/sms-logs#resolving-a-customers-missing-payment">
+    Always confirm that the SMS log's extracted Amount matches the expected checkout total before manually approving a transaction. Approving a mismatched amount creates a ledger discrepancy.
+  </Card>
+  <Card title="Cast Transaction IDs as strings" icon="code" href="/user-guide/mobile-sms/sms-logs#log-table-columns">
+    If writing custom scripts to query the SMS logs table, always treat Transaction IDs and UUIDs as strings, not numbers. Numeric casting of alphanumeric TrxIDs will cause query failures.
+  </Card>
+</CardGroup>

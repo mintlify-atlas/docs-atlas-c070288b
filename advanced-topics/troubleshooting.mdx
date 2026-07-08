@@ -1,0 +1,272 @@
+---
+title: "OwnPay Troubleshooting Guide for Common Issues"
+sidebarTitle: "Troubleshooting"
+description: "Diagnose and fix the most common OwnPay issues — invalid API keys, missing webhooks, stuck transactions, CORS errors, SMS mismatches, and 503 degraded status."
+---
+
+This guide covers the issues OwnPay administrators and integrators encounter most often in production. Each entry follows a consistent structure: symptom → root cause → diagnosis → resolution. Check `storage/logs/php-errors.log` and the slow-query log at `/var/lib/mysql/slow-queries.log` before opening a support ticket — the answer is usually in the logs.
+
+<Note>
+  Need the full diagnostic reference with SQL queries for every scenario? The detailed troubleshooting source covers installation errors, authentication failures, ledger mismatches, webhook forensics, and admin panel performance.
+</Note>
+
+## Authentication Issues
+
+<Accordion title="'Invalid API Key' or 401 Unauthorized">
+  **Symptom:** API calls return HTTP 401 with an `Invalid API key` or `Unauthorized` error.
+
+  **Root Causes:**
+  - The key was copied incorrectly (extra whitespace, truncation)
+  - The key was revoked or never activated
+  - Using a `read`-scoped key on a `write` endpoint (or vice versa)
+  - The `ENCRYPTION_KEY` in `.env` changed after the key was created (stored keys are AES-256-GCM encrypted)
+
+  **Diagnosis:**
+  1. Verify the key starts with `op.` — OwnPay API keys are always prefixed.
+  2. Check **Admin → Developer Hub → API Keys** to confirm the key is listed and not revoked.
+  3. Confirm the key scope (`read`, `write`, or `admin`) matches the endpoint you're calling.
+  4. Look for trailing whitespace in your `Authorization: Bearer` header value.
+
+  **Resolution:**
+  - Regenerate the key from **Admin → Developer Hub → API Keys → Create Key**.
+  - Copy the new key immediately — it is shown in plaintext only once.
+  - Update your `.env` or secrets manager with the new key before deleting the old one.
+</Accordion>
+
+<Accordion title="Login Shows 'Account Temporarily Locked'">
+  **Symptom:** Login returns *"Account temporarily locked due to repeated failed attempts."*
+
+  **Root Cause:** OwnPay's `Authenticator` checks `op_login_attempts` on every request. After `MAX_LOGIN_ATTEMPTS` failures (default: 5) within `LOCKOUT_DURATION` seconds (default: 300), the account is locked.
+
+  **Resolution:**
+  - **Wait** — the lockout clears automatically after 5 minutes (default).
+  - **Admin CLI unlock** — a super-admin can clear the lockout records from the database:
+
+    ```sql
+    DELETE FROM op_login_attempts
+    WHERE email = 'user@example.com'
+      AND success = 0
+      AND created_at > DATE_SUB(NOW(), INTERVAL 300 SECOND);
+    ```
+
+  - To harden against brute-force, increase the defaults in `.env`:
+
+    ```ini
+    MAX_LOGIN_ATTEMPTS=3
+    LOCKOUT_DURATION=900  # 15 minutes
+    ```
+</Accordion>
+
+## Payment and Transaction Issues
+
+<Accordion title="Payment Stuck in 'pending' State">
+  **Symptom:** A transaction has `status = 'pending'` far longer than the configured checkout timer (default: 10 minutes).
+
+  **Root Cause:** One of three causes:
+  1. The gateway webhook/callback was never delivered to OwnPay.
+  2. The mobile SMS from the companion device was not received or matched.
+  3. The `SmsVerificationJob` cron is not running.
+
+  **Diagnosis — check the cron:**
+
+  ```bash
+  # Confirm cron is running every minute
+  crontab -l | grep cron/run
+
+  # Manually trigger the cron to process pending SMS and expire stale intents
+  php public/index.php cron/run
+  ```
+
+  **Diagnosis — check lock files:**
+
+  ```bash
+  ls -la storage/cron/
+  # SmsVerificationJob.lock should have a recent timestamp
+  ```
+
+  **Resolution:**
+  1. Add the cron entry if it's missing:
+
+     ```bash
+     # crontab -e
+     * * * * * php /var/www/ownpay/public/index.php cron/run >> /dev/null 2>&1
+     ```
+
+  2. For SMS-based payments, check that the regex template matches the provider's SMS format in **Admin → Mobile & SMS → SMS Templates**.
+  3. For gateway-webhook-based payments, see the **Webhook Not Received** entry below.
+  4. If you've confirmed payment with the gateway dashboard, a super-admin can manually override the transaction status from **Admin → Transactions → [Transaction] → Edit**.
+</Accordion>
+
+<Accordion title="Webhook Not Received by My Application">
+  **Symptom:** OwnPay shows webhook events are being sent, but your application never receives them.
+
+  **Root Causes:**
+  - A firewall or security group is blocking inbound HTTP(S) on your application server
+  - The webhook URL is a private or loopback IP (OwnPay blocks these as an SSRF protection)
+  - Your application's endpoint returns a non-2xx status code
+  - The webhook secret is wrong, causing your application to reject the delivery
+
+  **Diagnosis:**
+
+  ```bash
+  # Test your endpoint is reachable from the OwnPay server
+  curl -v -X POST https://your-app.com/webhooks/ownpay \
+    -H "Content-Type: application/json" \
+    -d '{"event":"test","data":{}}'
+  ```
+
+  Check delivery logs in **Admin → Developer Hub → Webhooks → Delivery Log** for the specific HTTP status code and error message returned by your endpoint.
+
+  **Resolution:**
+  - Ensure your endpoint is publicly reachable over HTTPS from the internet.
+  - Verify port 443 is open in your cloud security group / firewall rules.
+  - Confirm your endpoint returns HTTP 200 within 5 seconds.
+  - Check your [webhook signature verification](/resources/code-examples#verify-a-webhook-signature) code — use the **raw** request body, not a decoded-and-re-encoded version.
+  - Private/loopback URLs (`127.x.x.x`, `10.x.x.x`, `192.168.x.x`) are blocked by OwnPay's SSRF protection and will never be delivered to. Use a tunnel like ngrok for local development.
+</Accordion>
+
+<Accordion title="Gateway Not Showing in Checkout">
+  **Symptom:** A configured payment gateway is absent from the checkout page for a brand.
+
+  **Root Causes:**
+  - The gateway plugin is not active
+  - The gateway is not enabled for the specific brand
+  - The payment currency is not supported by the gateway
+  - A custom domain is misconfigured
+
+  **Checklist:**
+  1. **Admin → Gateways → Payment Gateways** — is the gateway toggled **active**?
+  2. Is the gateway enabled specifically for this brand? Per-brand gateway activation is separate from global installation.
+  3. Does the gateway's `supportedCurrencies()` list include the intent's currency? Return `[]` in the adapter for "any currency".
+  4. Verify the domain type in **System → Domains** is set to `checkout` (not `api`).
+
+  **DNS verification pending:**
+  If the custom domain DNS is not verified, `DomainMiddleware` returns 503 for checkout routes. Go to **System → Domains** and click **Verify DNS** to trigger a re-check.
+</Accordion>
+
+## API and Integration Issues
+
+<Accordion title="CORS Errors When Calling the API">
+  **Symptom:** Browser console shows a CORS policy error when calling `/api/v1/*`.
+
+  **Root Cause:** This is by design. OwnPay's Merchant API is a **server-side API** — it is not intended to be called directly from a browser because doing so would expose your `write`-scoped API key to end users.
+
+  **Resolution:**
+  - API calls must originate from your **backend server**, never from JavaScript running in a browser.
+  - Your backend creates the payment intent, receives the `checkout_url`, and redirects the user's browser to that URL.
+  - If you need a real-time status indicator on the frontend, use the public `GET /checkout/{token}/status` AJAX endpoint — it requires only the checkout token, not an API key.
+
+  ```
+  ❌ Browser → OwnPay API (exposes API key)
+  ✅ Browser → Your Server → OwnPay API → Browser (secure)
+  ```
+</Accordion>
+
+## Mobile and SMS Issues
+
+<Accordion title="SMS Not Matching to a Pending Transaction">
+  **Symptom:** A payment SMS was received by the companion device, but `op_sms_parsed.match_status` stays `pending` and the transaction is not confirmed.
+
+  **Root Causes:**
+  - The SMS regex template doesn't match the provider's message format
+  - Two pending transactions have the same amount, making the match ambiguous (OwnPay refuses ambiguous matches)
+  - The companion device's pairing status is `offline` or `revoked`
+  - The cron job is not running
+
+  **Diagnosis:**
+
+  Check **Admin → Mobile & SMS → SMS Log** to see whether the SMS was parsed and what confidence score was assigned. If the amount was parsed but no match was found, check for amount collisions in **Admin → Transactions** (two pending transactions of the same value).
+
+  **Resolution:**
+  - Open **Admin → Mobile & SMS → SMS Templates** and verify the regex pattern matches the exact SMS format your provider sends. Use the built-in **Regex Tester** to test against a sample message.
+  - If there are two pending transactions of the same amount, manually verify one of them with the gateway dashboard before completing it.
+  - Confirm the companion device heartbeat is active in **Admin → Mobile & SMS → Devices**.
+  - Ensure `* * * * * php /var/www/ownpay/public/index.php cron/run` is in the crontab.
+</Accordion>
+
+## Infrastructure Issues
+
+<Accordion title="503 Degraded or Service Unavailable Status">
+  **Symptom:** OwnPay returns 503 responses or the health check at `GET /api/v1/health` reports a degraded status.
+
+  **Root Causes and Checks:**
+
+  **1. Database connectivity:**
+
+  ```bash
+  # Verify MariaDB is running
+  systemctl status mariadb
+
+  # Test connection with the same credentials in .env
+  mysql -u YOUR_DB_USER -p -h YOUR_DB_HOST YOUR_DB_NAME -e "SELECT 1;"
+  ```
+
+  **2. Disk space:**
+
+  ```bash
+  df -h /var/www/ownpay/storage
+  # storage/ must have free space for logs, cache, queue, and sessions
+  ```
+
+  If disk is full, OwnPay cannot write logs, cache settings, or queue jobs, which causes cascading failures.
+
+  **3. Storage directory permissions:**
+
+  ```bash
+  ls -la storage/
+  # Must be writable by the web-server user (www-data)
+  chown -R www-data:www-data storage/
+  chmod -R 775 storage/
+  ```
+
+  **4. PHP-FPM worker saturation:**
+
+  ```bash
+  curl -s http://127.0.0.1/fpm-status | grep "listen queue"
+  # If listen queue > 0, all PHP workers are busy
+  # Increase pm.max_children in the FPM pool config
+  ```
+
+  **Resolution by priority:**
+  1. Free up disk space — delete old log archives from `storage/logs/`.
+  2. Restart MariaDB if it stopped — `systemctl restart mariadb`.
+  3. Fix storage permissions — `chown -R www-data:www-data storage/`.
+  4. Scale PHP-FPM workers if the issue is load-related — see the [Performance & Scaling guide](/advanced-topics/performance-scaling).
+</Accordion>
+
+## Cron and Background Processing
+
+<Accordion title="Cron Job Not Running or Payment Events Not Processing">
+  **Symptom:** Webhooks are not retried, expired intents are not cleaned up, exchange rates are stale, or SMS verification never fires.
+
+  **Root Cause:** The OwnPay cron runner (`php public/index.php cron/run`) must be called every minute from the system cron. Without it, all nine scheduled jobs — including `WebhookRetryJob`, `SmsVerificationJob`, `QueueWorkerJob`, and `CurrencyUpdateJob` — never execute.
+
+  **Diagnosis:**
+
+  ```bash
+  # Verify the cron entry exists
+  crontab -l | grep cron/run
+
+  # Check the lock files for recent activity
+  ls -la /var/www/ownpay/storage/cron/
+  # Each job should have a .lock file with a timestamp from the last run
+  ```
+
+  **Resolution:**
+
+  Add the cron entry if it's missing:
+
+  ```bash
+  crontab -e
+  ```
+
+  ```
+  * * * * * php /var/www/ownpay/public/index.php cron/run >> /dev/null 2>&1
+  ```
+
+  You can also manually trigger all pending cron jobs from the admin panel under **Settings → Cron Jobs → Run Now**, or via CLI:
+
+  ```bash
+  php public/index.php cron/run
+  ```
+</Accordion>

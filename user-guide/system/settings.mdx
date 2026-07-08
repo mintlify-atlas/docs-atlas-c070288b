@@ -1,0 +1,133 @@
+---
+title: "System Settings: Configure Your OwnPay Platform"
+sidebarTitle: "System Settings"
+description: "Configure application name, base URL, timezone, support email, footer text, and maintenance mode for your self-hosted OwnPay instance."
+---
+
+The System Settings panel is the master configuration board for your OwnPay platform. Every global runtime value — from the application name displayed in customer emails to the timezone used for financial reports — is managed here. Changes take effect immediately after saving, making it the first stop for any new deployment or platform migration.
+
+<Info>
+  Runtime settings are persisted in the `op_system_settings` database table under the `runtime` group. Always edit settings through this panel or the `EnvironmentService` wrappers. Writing raw SQL directly to the table can cause cache-mismatch errors.
+</Info>
+
+## Accessing System Settings
+
+<Steps>
+  <Step title="Log in as Super-Administrator">
+    Sign in to the OwnPay admin dashboard using your super-administrator credentials.
+  </Step>
+  <Step title="Open the Settings Panel">
+    In the left sidebar under the **SYSTEM** section, click **Settings**. The page loads on the **General** tab by default.
+  </Step>
+</Steps>
+
+---
+
+## Application Settings
+
+The **Application Settings** section controls the global identity and localization of your platform.
+
+<CardGroup cols={2}>
+  <Card title="App Name" icon="tag">
+    The visual name of the platform (e.g. `Own Pay`). This value is injected into admin headers, customer emails, and payment invoices.
+  </Card>
+  <Card title="Base URL" icon="link">
+    The primary domain where OwnPay is hosted (e.g. `https://pay.example.com`). Used to construct checkout route links. Do not include a trailing slash.
+  </Card>
+  <Card title="Timezone" icon="clock">
+    Dropdown to select the default system timezone (e.g. `Asia/Dhaka`, `Europe/London`). This offset aligns financial reports, transaction timestamps, and audit logs.
+  </Card>
+  <Card title="Support Email" icon="envelope">
+    The global support email displayed on checkout flows and payment error screens so customers can reach your team.
+  </Card>
+  <Card title="Footer Text" icon="align-center">
+    Custom copyright or company text shown at the bottom of the admin panel (e.g. `© 2026 Your Company`).
+  </Card>
+</CardGroup>
+
+### Field Reference
+
+| Field | Type | Required | Example | Description |
+|---|---|---|---|---|
+| **App Name** | Text | Yes | `Own Pay` | Platform display name. |
+| **Base URL** | Text | No | `https://pay.example.com` | Main server access URL (no trailing slash). |
+| **Timezone** | Select | Yes | `Asia/Dhaka` | Localizes report timestamps and audit offsets. |
+| **Support Email** | Text | Yes | `support@example.com` | Customer-facing contact address. |
+| **Footer Text** | Text | No | `© 2026 Your Company` | Admin panel copyright footer. |
+| **Maintenance Mode** | Toggle | No | Disabled | Blocks public checkout routes (returns HTTP 503). |
+
+---
+
+## Updating the System Timezone
+
+<Steps>
+  <Step title="Navigate to Settings">
+    Go to **SYSTEM → Settings** from the sidebar.
+  </Step>
+  <Step title="Select Your Timezone">
+    Scroll to the **Timezone** dropdown and choose your local timezone.
+  </Step>
+  <Step title="Save">
+    Click **Save Settings** in the page footer to apply the change.
+  </Step>
+</Steps>
+
+<Warning>
+  Avoid changing the timezone frequently on a live system. Shifting the offset causes visual anomalies in daily reporting charts and can misalign historical transaction timestamps.
+</Warning>
+
+---
+
+## Maintenance Mode
+
+When **Maintenance Mode** is toggled on, all customer-facing checkout screens and landing pages return an HTTP **503 Service Unavailable** response. The administrative dashboard remains fully accessible to logged-in staff, allowing configuration work to continue uninterrupted.
+
+<Steps>
+  <Step title="Enable Maintenance Mode">
+    Scroll to the **Maintenance Mode** section and flip the toggle to active.
+  </Step>
+  <Step title="Save Settings">
+    Click **Save Settings** to apply.
+  </Step>
+  <Step title="Verify">
+    Open a private browser window and navigate to your public root URL. Confirm it returns a 503 page while your admin session still works.
+  </Step>
+  <Step title="Disable When Done">
+    After completing your maintenance task, return here, toggle Maintenance Mode off, and save again.
+  </Step>
+</Steps>
+
+<Note>
+  Certain paths remain accessible during maintenance mode by design: `/admin`, `/login`, `/webhook`, `/cron`, and `/checkout` routes are whitelisted so gateway callbacks continue processing and you can still sign in to the admin panel.
+</Note>
+
+---
+
+## Best Practices
+
+<Accordion title="Base URL configuration tips">
+  Always set the Base URL to use the `https://` protocol matching your SSL certificate. Insecure `http://` endpoints can cause API connection drops and mixed-content browser warnings. Never append a trailing slash — the platform constructs sub-paths automatically.
+</Accordion>
+
+<Accordion title="When to use Maintenance Mode">
+  Enable Maintenance Mode before uploading platform updates, running database migrations, or reconfiguring gateway credentials in bulk. This prevents customers from encountering partial states or broken checkout sessions during the operation window.
+</Accordion>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Branding Settings" icon="palette" href="/user-guide/appearance/branding-settings">
+    Upload logos, favicons, and configure SEO metadata for your platform.
+  </Card>
+  <Card title="Landing Page" icon="house" href="/user-guide/appearance/landing-page">
+    Manage the public-facing marketing home page content and hero text.
+  </Card>
+  <Card title="Custom Domains" icon="globe" href="/user-guide/system/domains">
+    Assign white-label custom domains to your brands.
+  </Card>
+  <Card title="System Update" icon="arrow-up-to-line" href="/user-guide/system/system-update">
+    Check for and apply core platform updates.
+  </Card>
+</CardGroup>

@@ -1,0 +1,189 @@
+---
+title: "Managing and Reviewing Payment Transactions"
+sidebarTitle: "Transactions"
+description: "Search, filter, and inspect every payment processed through OwnPay — including statuses, gateway fees, net amounts, and double-entry ledger references."
+---
+
+The Transactions page is the authoritative record of every financial movement that has passed through your OwnPay gateway. Whether a customer completed a payment via bKash, Nagad, Stripe, or a manual gateway link, every attempt — successful or not — is recorded here with its full lifecycle history. Administrators use this page to monitor revenue, investigate payment failures, verify customer payment proofs, and cross-reference the double-entry ledger.
+
+## Accessing the Transactions Page
+
+1. Log in to the OwnPay admin panel.
+2. In the left sidebar under the **PAYMENTS** section, click **Transactions**.
+
+## Page Layout
+
+The transactions interface is divided into two main views: the **List View** with its filter toolbar, and the **Transaction Detail** page.
+
+### Filter Toolbar
+
+At the top of the content area, a set of filter controls narrows down the transaction table:
+
+| Control | Description |
+|---|---|
+| **Status Tab Filters** | Quick-access tabs: `All`, `Completed`, `Pending`, `Failed`, `Refunded`, `Cancelled`. Click a tab to instantly filter the list. |
+| **Search Input** | Match transactions by **TRX ID** or payment amount. Partial matches are supported. |
+| **Gateway Filter** | Dropdown to restrict results to a specific payment processor (e.g. Stripe, bKash, Nagad, or manual gateway links). |
+| **From Date / To Date** | Date range pickers to constrain results to a specific period. |
+| **Filter Button** | Executes the combined search and date range query on the table. |
+
+### Transactions Table
+
+The main table lists all matching transactions with the following columns:
+
+| Column | Description |
+|---|---|
+| **TRX ID** | Unique system-generated transaction code (e.g. `TXN-20260501-0042`). |
+| **Customer** | Customer email or phone number associated with the payment. |
+| **Amount** | Transaction value and currency. |
+| **Gateway** | The payment processor that handled the transaction. |
+| **Status** | Color-coded badge: green (`completed`), yellow (`pending`), red (`cancelled` / `failed`). |
+| **Date** | Creation timestamp of the transaction. |
+| **Actions** | **View** button to open the full Transaction Detail page. |
+
+## Transaction Statuses
+
+Understanding each status is essential for managing your payment pipeline correctly.
+
+<Tabs>
+  <Tab title="Completed">
+    **`completed`** — The payment was successfully processed and confirmed by the payment gateway. Funds have been registered in the ledger. This is the terminal success state.
+
+    A corresponding credit (CR) ledger entry is posted to the brand's `MERCHANT_PAYABLE` account when a transaction reaches this state.
+  </Tab>
+  <Tab title="Pending">
+    **`pending`** — The customer opened the checkout screen and initiated payment, but confirmation has not yet been received. Common causes include:
+    - Awaiting SMS notification parsing from the customer's mobile wallet.
+    - Awaiting a webhook callback (IPN) from the payment gateway.
+    - Customer abandoned the checkout mid-flow.
+
+    <Note>
+      A persistently high pending count often indicates the SMS parser device is offline or a gateway webhook is misconfigured. Check the Webhook logs and Paired Devices screen promptly.
+    </Note>
+  </Tab>
+  <Tab title="Failed">
+    **`failed`** — The payment processor explicitly rejected the transaction. The customer's payment attempt did not go through. No funds were captured, and no ledger entry is posted.
+
+    Monitor failed transactions across specific gateways to identify systemic gateway problems.
+  </Tab>
+  <Tab title="Refunded">
+    **`refunded`** — Funds were returned to the customer. A reversing debit (DR) ledger entry is posted to offset the original credit. Before initiating a refund, verify it will not push the merchant account balance below zero.
+  </Tab>
+  <Tab title="Cancelled">
+    **`cancelled`** — The checkout expired (typically due to a session timeout) or was explicitly cancelled by the customer. No payment was captured.
+  </Tab>
+</Tabs>
+
+## Filtering Transactions
+
+<Steps>
+  <Step title="Select a status tab">
+    Click the desired status tab at the top of the table — for example, **Completed** — to immediately filter to only successful payments.
+  </Step>
+  <Step title="Enter a search term">
+    Type a full or partial **TRX ID** or an exact payment amount in the search field to narrow results further.
+  </Step>
+  <Step title="Apply gateway and date filters (optional)">
+    Use the **Gateway Filter** dropdown to restrict results to a single processor. Set **From Date** and **To Date** to a specific date range. Leave these blank to search across all gateways and dates.
+  </Step>
+  <Step title="Click Filter">
+    Press the **Filter** button to execute the combined query. The table refreshes with the matching results.
+  </Step>
+</Steps>
+
+## Viewing Transaction Details
+
+<Steps>
+  <Step title="Locate the transaction">
+    Find the target transaction in the table using the filters above.
+  </Step>
+  <Step title="Click View">
+    Under the **Actions** column, click the **View** button to open the Transaction Detail page.
+  </Step>
+  <Step title="Review the Details Block">
+    The detail page shows the complete financial breakdown:
+
+    | Field | Description |
+    |---|---|
+    | **Status** | Current lifecycle state of the transaction. |
+    | **Amount** | Total amount paid by the customer. |
+    | **Fee** | Processing fee charged by the payment gateway (e.g. bKash's percentage fee). |
+    | **Net Amount** | Amount credited to your ledger after deducting the gateway fee (`Amount − Fee`). |
+    | **Gateway TRX ID** | The transaction reference ID returned by the external payment processor. Use this to verify against your gateway portal or bank statement. |
+    | **Created At / Updated At** | Timestamps for when the transaction was initiated and last updated. |
+  </Step>
+  <Step title="Review the Customer Block">
+    Below the financial details, the Customer Block shows the customer's name, email, phone number, and IP address at the time of payment. This information assists in fraud investigation and customer dispute resolution.
+  </Step>
+  <Step title="Cross-reference the Ledger">
+    If Ledger Entries are displayed at the bottom of the detail page, they show the corresponding double-entry journal movements (debit/credit pairs). Alternatively, navigate to [Ledger](/user-guide/payments/ledger) and search by the TRX ID to trace the full accounting record.
+  </Step>
+</Steps>
+
+## Transaction Detail Fields Reference
+
+### Financial Fields
+
+| Field | Description |
+|---|---|
+| **trx_id** | Internal unique transaction identifier generated by OwnPay. |
+| **gateway_trx_id** | Transaction ID returned by the external gateway (e.g. bKash transaction ID). |
+| **amount** | Gross amount paid by the customer in the transaction currency. |
+| **fee** | Gateway processing fee deducted from the gross amount. |
+| **net_amount** | Net funds credited to your merchant ledger (`amount − fee`). |
+| **status** | Current state: `completed`, `pending`, `failed`, `refunded`, or `cancelled`. |
+
+### Customer Fields
+
+| Field | Description |
+|---|---|
+| **name** | Customer's registered display name. |
+| **email** | Customer's email address. |
+| **phone** | Customer's phone number (critical for mobile wallet gateways like bKash/Nagad). |
+| **ip_address** | Customer's IP address at the time of checkout. |
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Verify Gateway TRX IDs" icon="magnifying-glass-dollar" href="/user-guide/payments/transactions">
+    Before releasing high-value goods or services, cross-check the `gateway_trx_id` against your physical bKash, Nagad, or Stripe merchant portal statements. Do not rely solely on OwnPay status badges for large transactions.
+  </Card>
+  <Card title="Monitor Failed Transactions" icon="circle-xmark" href="/user-guide/payments/transactions">
+    Regularly review the **Failed** tab. A sudden spike in failures on a specific gateway indicates a configuration error, gateway downtime, or a credentials issue that needs immediate attention.
+  </Card>
+  <Card title="Cross-Reference the Ledger" icon="book" href="/user-guide/payments/ledger">
+    For every completed transaction you wish to audit financially, locate the corresponding debit/credit pair in the Ledger. This confirms the correct net amount was posted to your merchant payable account.
+  </Card>
+  <Card title="Handle Refunds Carefully" icon="rotate-left" href="/user-guide/payments/ledger">
+    Before marking a transaction as refunded, verify that the reversing ledger debit will not create a negative balance in your merchant account. Always confirm with the Ledger's Current Balance first.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Never manually force-complete a transaction unless you have absolute, verifiable proof of receipt from the external payment gateway. Forcefully completing an unverified transaction without a corresponding gateway record creates a ledger imbalance and potential fraud risk.
+</Warning>
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| No transactions appear in the list | Wrong brand context selected, or no transactions exist for the current filter combination. | Verify the **Brand Context** in the top header, clear all filters, and click **Filter** again. |
+| A transaction remains `pending` after the customer claims payment | Gateway webhook (IPN) failed to fire, or the SMS parsing device is offline. | Check **Developer → Webhook Logs** and the **Paired Devices** screen for pending SMS matches or failed callback events. |
+| `net_amount` appears lower than expected | Gateway fee is higher than anticipated for the selected processor. | Review the gateway fee structure in **Payment Gateways** settings. |
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Dashboard" icon="gauge" href="/user-guide/dashboard/dashboard">
+    Real-time overview of transaction volumes, revenue KPIs, and recent activity.
+  </Card>
+  <Card title="Ledger" icon="book" href="/user-guide/payments/ledger">
+    The double-entry bookkeeping journal underlying every financial transaction.
+  </Card>
+  <Card title="Invoices" icon="file-invoice-dollar" href="/user-guide/payments/invoices">
+    Create structured invoices and track the resulting payment transactions.
+  </Card>
+  <Card title="Payment Links" icon="link" href="/user-guide/payments/payment-links">
+    Inspect transactions generated from shareable payment link checkouts.
+  </Card>
+</CardGroup>

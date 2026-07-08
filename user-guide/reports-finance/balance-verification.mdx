@@ -1,0 +1,101 @@
+---
+title: "Balance Verification — Ledger Reconciliation in OwnPay"
+sidebarTitle: "Balance Verification"
+description: "Run financial reconciliation checks that compare your internal double-entry ledger against gateway transaction totals to detect and investigate discrepancies."
+---
+
+Balance Verification is OwnPay's built-in financial reconciliation tool. It performs an automated comparison between two independent views of your financial data: the **internal ledger** (calculated from double-entry accounting entries in the database) and the **gateway transaction records** (the sum of all actual completed payments). When these two figures match, your books are balanced. When they diverge, OwnPay surfaces the variance so you can investigate before it compounds into a larger discrepancy. Running verification checks regularly is a key discipline for any operator managing real payment volumes.
+
+## Navigating to Balance Verification
+
+In the OwnPay admin dashboard, expand the **REPORTS & FINANCE** section in the left sidebar and click **Balance Verification**. The verification portal opens with the currency selector and run button at the top.
+
+## What Balance Verification Does
+
+At its core, the verification tool answers a single question: *does the sum of all ledger entries equal the sum of all completed transaction records?*
+
+<CardGroup cols={2}>
+  <Card title="Internal Ledger (Expected)" icon="book" href="/user-guide/reports-finance/balance-verification#understanding-the-results">
+    The aggregate balance computed from double-entry records in the `op_ledger_entries` table. This represents what your accounting system believes the balance should be.
+  </Card>
+  <Card title="Gateway Transactions (Actual)" icon="credit-card" href="/user-guide/reports-finance/balance-verification#understanding-the-results">
+    The aggregate balance compiled from completed payment records in the `op_transactions` table. This represents what was actually collected through payment gateways.
+  </Card>
+</CardGroup>
+
+The tool subtracts Actual from Expected to produce a **Variance** figure. An ideal result is `0.00` — meaning both sources agree perfectly. Any non-zero value warrants investigation.
+
+## Running a Verification Check
+
+<Steps>
+  <Step title="Navigate to Balance Verification">
+    Go to **Reports & Finance → Balance Verification** in the admin sidebar.
+  </Step>
+  <Step title="Select the currency to audit">
+    Open the **Currency** dropdown and select the denomination you want to check (e.g. `BDT`, `USD`). Run a separate check for each currency your brand accepts.
+  </Step>
+  <Step title="Click Run Verification">
+    Click the **Run Verification** button. OwnPay queries both the ledger entries table and the transactions table, computes the totals, and calculates the variance.
+  </Step>
+  <Step title="Review the results table">
+    The reconciliation results table updates with one row per currency, showing the Expected Internal balance, the Actual Gateway balance, the Variance, and the Status badge.
+  </Step>
+</Steps>
+
+<Tip>
+  Run balance verifications during low-traffic periods — such as early morning or after business hours. Active checkout sessions in progress at the moment of the check can create temporary apparent variances as transactions exist in a transitional state between `pending` and `completed`.
+</Tip>
+
+## Understanding the Results
+
+The results table presents the following columns for each audited currency:
+
+| Column | Description |
+|---|---|
+| **Currency** | The ISO 4217 code of the currency being reconciled (e.g. `BDT`, `USD`). |
+| **Expected (Internal)** | The net balance computed from internal ledger entries. This is what your double-entry system says you have. |
+| **Actual (Gateway)** | The net balance compiled from completed transaction logs across all payment gateways. |
+| **Variance** | The mathematical difference: Expected minus Actual. A value of `0.00` indicates a balanced ledger. |
+| **Status** | A colour-coded badge — **Balanced** (green) when Variance is `0.00`, or **Discrepancy** (red) when any non-zero variance is detected. |
+
+### Balanced Result
+
+A `Balanced` status with `0.00` variance means your accounting records are fully aligned with your transaction data. No further action is required — simply record the verification run date for your audit trail.
+
+### Discrepancy Result
+
+A `Discrepancy` status means the internal ledger and gateway transaction totals do not agree. The Variance figure shows the magnitude and direction of the difference. This does not necessarily indicate fraud — common causes include technical issues during high-load periods — but it always requires investigation.
+
+## What a Discrepancy Means and How to Investigate
+
+<Accordion title="A transaction failed to write a ledger entry">
+  In rare cases during high database load, a transaction might be marked as `completed` in the transactions table while the corresponding double-entry ledger record fails to write. This is the most common cause of a positive variance (Expected less than Actual). Check the `op_ledger_entries` table for recent gaps and run the system's diagnostic tool to re-create missing entries.
+</Accordion>
+
+<Accordion title="A direct database modification bypassed the ORM layer">
+  If any balance adjustment was performed directly via SQL (bypassing the `OwnPay\Repository\LedgerRepository` service), the double-entry system was not engaged and the ledger will be out of sync. Review the Audit Log for `settings.saved` or unusual entries, and check your server's database access logs for direct queries during the variance period.
+</Accordion>
+
+<Accordion title="Stale cache is returning outdated balance totals">
+  If the application cache is not invalidated after a transaction is written, the verification tool may read a cached (outdated) balance instead of the current database value. Clear the application cache from the server console and re-run the verification check.
+</Accordion>
+
+<Accordion title="A custom plugin interacted with balances outside the repository layer">
+  If you have installed third-party plugins or written custom code that modifies transaction or ledger records directly, those operations may have bypassed the double-entry reconciliation logic. Audit any recently installed or updated plugins and confirm they use `OwnPay\Repository\LedgerRepository` for all balance interactions.
+</Accordion>
+
+## Verification Results Reference
+
+| Status | Variance | Meaning | Action |
+|---|---|---|---|
+| **Balanced** | `0.00` | Ledger and transaction totals are in perfect agreement. | No action needed. Log the verification date. |
+| **Discrepancy** | Positive value | Expected (internal ledger) exceeds Actual (gateway records). Ledger entries may have been over-credited. | Review recent ledger writes and audit log. |
+| **Discrepancy** | Negative value | Actual (gateway records) exceeds Expected (internal ledger). Transactions were completed without matching ledger entries. | Check for failed ledger writes and missing entries. |
+
+<Warning>
+  Never ignore a non-zero variance, even if the amount appears trivial (such as a few cents). Small discrepancies can indicate rounding logic errors, plugin bugs, or misconfigured fee calculations that will compound over time. A penny-level variance today can become a significant reconciliation problem at month-end.
+</Warning>
+
+<Note>
+  If you are writing custom plugins or integrations that touch payment amounts, always use the `OwnPay\Repository\LedgerRepository` class to post ledger entries. This repository wraps all balance operations in database transactions, ensuring that a failed ledger write automatically rolls back the parent transaction rather than creating a one-sided entry.
+</Note>

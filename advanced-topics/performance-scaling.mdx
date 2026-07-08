@@ -1,0 +1,442 @@
+---
+title: "OwnPay Performance Tuning and Scaling Guide"
+sidebarTitle: "Performance"
+description: "Configure OwnPay for high-volume payment processing — cron jobs, database indexes, PHP-FPM tuning, Redis queues, horizontal scaling, CDN, and health check monitoring."
+---
+
+OwnPay is engineered for performance: composite database indexes on every `merchant_id` column, stored generated columns for JSON field lookups, a Redis-backed cache and queue, OPcache with JIT, and idempotency middleware that prevents duplicate charges under retry load. This guide walks through each layer from cron configuration to horizontal scaling architecture.
+
+## Performance Targets (Single Server)
+
+On a standard Docker Compose stack with Redis enabled, these are the baseline targets:
+
+| Operation | Target | Notes |
+|---|---|---|
+| Payment creation (`POST /api/v1/payments`) | < 150ms | Includes fee rule resolution + ledger write |
+| Checkout page load | < 300ms | Brand theme + active gateway CSP build |
+| Transaction list (100 items, paginated) | < 200ms | Uses `idx_merchant_created` composite index |
+| Invoice/payment link lookup | < 50ms | Stored generated column + B-tree index |
+| API response (any endpoint) | < 200ms | Redis rate limiter adds < 5ms overhead |
+| Webhook delivery | < 1 second | Sync delivery; async retry via `WebhookRetryCron` |
+
+## Capacity Tiers
+
+| Daily Volume | Action Required |
+|---|---|
+| > 1,000 payments/day | Switch to `CACHE_DRIVER=redis` and `QUEUE_DRIVER=redis` |
+| > 5,000 payments/day | Tune PHP-FPM pool, increase InnoDB buffer pool |
+| > 10,000 payments/day | Add a dedicated database server |
+| > 50,000 payments/day | Read replica + Redis Cluster |
+| > 100,000 payments/day | Horizontal app scaling + load balancer |
+
+## Cron Job Configuration
+
+The OwnPay cron runner processes all nine scheduled jobs and must be called **every minute** from the system cron. Without it, webhooks are not retried, expired intents are not cleaned up, SMS verification never fires, and the queue backs up.
+
+```bash
+# Add to crontab (crontab -e)
+* * * * * php /var/www/ownpay/public/index.php cron/run >> /dev/null 2>&1
+```
+
+The cron runner uses file-based `flock` locking per job to prevent concurrent execution. Jobs run on their own schedule:
+
+| Job | Schedule | Purpose |
+|---|---|---|
+| `QueueWorkerJob` | Every minute | Process emails, webhook sends, async jobs |
+| `WebhookRetryCron` | Every 5 minutes | Retry up to 50 failed webhook deliveries |
+| `SmsVerificationJob` | Every minute | Match parsed SMS to pending transactions |
+| `DnsVerificationJob` | Hourly | Verify custom domain DNS records |
+| `CurrencyUpdateJob` | Every 6 hours | Fetch live exchange rate updates |
+| `BalanceVerificationJob` | Daily | Cross-check ledger vs. transaction aggregates |
+| `RefundReconciliationJob` | Daily | Sync refund status from gateway APIs |
+| `UpdateCheckJob` | Daily | Check for new OwnPay releases |
+| `SystemUpdateJob` | Every 6 hours | Apply updates during the 02:00–04:00 window |
+
+<Warning>
+  A missing cron entry is the most common cause of stuck transactions, stale exchange rates, and webhook delivery failures. Verify the cron is running: `ls -la /var/www/ownpay/storage/cron/` — each job should have a `.lock` file with a recent timestamp.
+</Warning>
+
+## Database Optimization
+
+### Composite Indexes
+
+All tenant-scoped queries filter on `merchant_id` first. Every high-traffic table carries a `(merchant_id, ...)` composite index so brand-scoped `WHERE` clauses hit an index immediately:
+
+| Table | Index | Used By |
+|---|---|---|
+| `op_transactions` | `idx_merchant_status (merchant_id, status)` | Dashboard payment list |
+| `op_transactions` | `idx_merchant_created (merchant_id, created_at)` | Date-range reports |
+| `op_system_settings` | `idx_merchant_group (merchant_id, group_name)` | `SettingsRepository::getGroup()` |
+| `op_customers` | `idx_merchant_phone_hash (merchant_id, phone_hash)` | Customer lookup |
+| `op_webhook_events` | `idx_webhook_status (webhook_id, status)` | Retry queue |
+| `op_audit_log` | `idx_merchant_action (merchant_id, action)` | Filtered audit views |
+
+### Stored Generated Columns
+
+The `op_transactions` table uses **MySQL Stored Generated Columns** to eliminate runtime JSON extraction overhead:
+
+```sql
+-- Stored generated columns — indexed, no runtime JSON parsing
+`invoice_id` BIGINT UNSIGNED GENERATED ALWAYS AS (
+  CAST(JSON_UNQUOTE(JSON_EXTRACT(`metadata`, '$.invoice_id')) AS UNSIGNED)
+) STORED,
+
+KEY `idx_invoice_id` (`invoice_id`),
+KEY `idx_payment_link_id` (`payment_link_id`)
+```
+
+Queries on `invoice_id` or `payment_link_id` use a normal B-tree index — sub-millisecond index seeks instead of full table scans.
+
+### InnoDB Buffer Pool
+
+Set the buffer pool to **~70% of available database server RAM**:
+
+```ini
+# .docker/mariadb.cnf (or your production my.cnf)
+[mysqld]
+innodb_buffer_pool_size     = 256M    # Docker default
+innodb_buffer_pool_instances = 1
+
+# For a dedicated 8 GB DB server:
+# innodb_buffer_pool_size    = 5G
+# innodb_buffer_pool_instances = 4
+
+# Financial data integrity — never reduce these
+innodb_flush_log_at_trx_commit = 1
+innodb_flush_method            = O_DIRECT
+
+# Slow query logging (queries > 2s)
+slow_query_log      = 1
+slow_query_log_file = /var/lib/mysql/slow-queries.log
+long_query_time     = 2
+```
+
+### Regular Maintenance
+
+Run these queries on a schedule to keep the database performing well:
+
+```sql
+-- Weekly: update table statistics
+ANALYZE TABLE op_transactions;
+ANALYZE TABLE op_audit_log;
+ANALYZE TABLE op_webhook_events;
+
+-- Monthly: clean up expired temporary records
+DELETE FROM op_idempotency_keys
+WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
+
+DELETE FROM op_password_resets
+WHERE expires_at < NOW();
+
+DELETE FROM op_login_attempts
+WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
+```
+
+## PHP-FPM Tuning
+
+OwnPay's production PHP-FPM pool configuration:
+
+```ini
+[ownpay]
+listen = 127.0.0.1:9000
+
+pm                   = dynamic
+pm.max_children      = 20    # maximum simultaneous PHP workers
+pm.start_servers     = 4
+pm.min_spare_servers = 2
+pm.max_spare_servers = 8
+pm.max_requests      = 500   # recycle worker after 500 requests (prevents memory leaks)
+
+slowlog                 = storage/logs/php-fpm-slow.log
+request_slowlog_timeout = 10s
+```
+
+**Calculating the right `pm.max_children`:**
+
+```bash
+# Check average worker memory usage under load
+ps -o rss= -C php-fpm | awk '{sum+=$1} END {print sum/NR/1024 " MB average"}'
+
+# Formula: available RAM ÷ average worker memory
+# Example: 3000 MB available / 80 MB per worker = 37 → set pm.max_children = 35
+```
+
+**PHP memory and execution limits:**
+
+```ini
+memory_limit       = 256M   # per worker
+max_execution_time = 120    # seconds; covers report generation
+bcmath.scale       = 10     # financial precision
+```
+
+### OPcache Configuration
+
+OwnPay ships a production-tuned OPcache configuration:
+
+```ini
+opcache.enable                = 1
+opcache.memory_consumption    = 128        # 128 MB bytecode cache
+opcache.max_accelerated_files = 10000      # covers all OwnPay source files
+opcache.revalidate_freq       = 0          # never check disk (production only)
+opcache.validate_timestamps   = 0          # no filesystem stat() calls
+opcache.jit                   = tracing    # PHP 8.3 JIT
+opcache.jit_buffer_size       = 64M
+
+realpath_cache_size = 4096K
+realpath_cache_ttl  = 600
+```
+
+<Note>
+  Set `opcache.validate_timestamps = 0` **in production only**. After every deployment, reload PHP-FPM to clear the bytecode cache: `systemctl reload php8.3-fpm`.
+</Note>
+
+## Redis and Queue Setup
+
+Switching from the default file-based cache and queue to Redis is the single highest-impact performance change for any deployment above 1,000 payments/day.
+
+```ini
+# .env
+CACHE_DRIVER=redis
+QUEUE_DRIVER=redis
+
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_DB=0          # DB 0 for cache
+REDIS_PREFIX=op:
+```
+
+The queue uses **Redis DB 1** automatically (separate from the cache on DB 0). This allows safe co-location of cache and queue on the same Redis instance.
+
+```yaml
+# docker-compose.yml Redis service
+redis:
+  image: redis:7-alpine
+  command: >
+    redis-server
+    --maxmemory 256mb
+    --maxmemory-policy allkeys-lru
+    --save ""
+    --appendonly no
+```
+
+**Monitor Redis health:**
+
+```bash
+# Real-time command stream
+redis-cli monitor
+
+# Hit rate (target: > 80%)
+redis-cli info stats | grep -E 'keyspace_hits|keyspace_misses'
+
+# Queue depth
+redis-cli llen "op:queue:default"
+
+# Failed jobs
+redis-cli llen "op:queue:failed"
+```
+
+## Webhook Delivery Performance
+
+OwnPay's `WebhookRetryCron` processes up to **50 pending events** per execution (every 5 minutes) using an exponential backoff schedule:
+
+| Attempt | Retry Delay |
+|---|---|
+| 1 | 5 minutes |
+| 2 | 15 minutes |
+| 3 | 1 hour |
+| 4 | 6 hours |
+| 5 | 12 hours |
+| 6 | 24 hours |
+| 7+ | Dead-lettered |
+
+For high-volume webhook workloads, monitor the `op_webhook_events` table for growing `pending` counts — this indicates the cron isn't keeping up or your endpoints are slow to respond.
+
+```sql
+-- Check webhook health
+SELECT status, COUNT(*) as count, AVG(attempts) as avg_attempts
+FROM op_webhook_events
+GROUP BY status;
+```
+
+## Horizontal Scaling
+
+### Architecture 2: Dedicated Database Server
+
+When transaction volume outgrows the single-server stack:
+
+```
+┌──────────────────────┐        ┌──────────────────────┐
+│   App Server         │        │   DB Server          │
+│   PHP-FPM + Nginx    │──────→ │   MariaDB 10.11      │
+│   Redis (local)      │        │   innodb_buffer: 5G+ │
+│   CACHE_DRIVER=redis │        │   max_connections:300│
+└──────────────────────┘        └──────────────────────┘
+```
+
+Update `.env` on the app server:
+
+```ini
+DB_HOST=192.168.1.10   # dedicated DB server IP
+DB_CONNECT_RETRIES=5   # more retries over network
+```
+
+### Architecture 3: Load-Balanced App Servers
+
+For 50,000+ payments/day with high availability:
+
+```
+             Load Balancer (Nginx/HAProxy)
+                   │               │
+     ┌─────────────┘               └─────────────┐
+     │                                            │
+App Server 1 (PHP-FPM + Nginx)   App Server 2 (PHP-FPM + Nginx)
+     │                                            │
+     └──────────────────┬─────────────────────────┘
+                        │
+            ┌───────────┴───────────┐
+            │                       │
+      MariaDB Primary          MariaDB Read Replica
+      (writes)                 (reports/analytics)
+            │
+      Redis Cluster (3+ nodes)
+```
+
+**Critical requirement for horizontal scaling:** Sessions are stored in `storage/sessions/` by default. When running multiple app servers, configure Redis-backed sessions:
+
+```ini
+# php-fpm pool config
+php_value[session.save_handler] = redis
+php_value[session.save_path]    = "tcp://redis:6379?prefix=op:sess:"
+```
+
+**Nginx load balancer configuration:**
+
+```nginx
+upstream ownpay_app {
+    least_conn;
+    server app1.internal:80;
+    server app2.internal:80;
+    keepalive 32;
+}
+
+server {
+    listen 443 ssl;
+    server_name pay.example.com;
+
+    location / {
+        proxy_pass http://ownpay_app;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**Configure trusted proxies in `.env`:**
+
+```ini
+TRUSTED_PROXIES=10.0.0.1,10.0.0.2   # load balancer IPs or CIDR ranges
+```
+
+OwnPay's `RateLimiterMiddleware` reads `X-Forwarded-For` when `TRUSTED_PROXIES` is set, ensuring rate limits apply per end-user rather than per proxy.
+
+## CDN for Static Assets
+
+Static assets (CSS, JS, images, gateway icons) are served with a 30-day `Cache-Control: public, immutable` header by Nginx. Point a CDN origin to your OwnPay server to offload static file delivery:
+
+```nginx
+# Already in OwnPay's Nginx config
+location ~* \.(css|js|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$ {
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+    access_log off;
+}
+```
+
+Configure your CDN to cache responses with `Cache-Control: immutable` indefinitely and invalidate on each OwnPay update.
+
+## Monitoring and the Health Check Endpoint
+
+### Health Check Endpoint
+
+```
+GET /api/v1/health
+```
+
+Returns an HTTP 200 with a JSON body confirming the status of the database, cache, and queue subsystems. Use this as your load balancer health check probe and uptime monitor target.
+
+The Docker stack wires this up automatically:
+
+```yaml
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost/api/v1/health"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+```
+
+### Key Metrics to Monitor
+
+**Application:**
+| Metric | Target |
+|---|---|
+| PHP-FPM active workers | < 80% of `pm.max_children` |
+| PHP-FPM listen queue | 0 |
+| OPcache hit rate | > 95% |
+
+**Database:**
+| Metric | Target |
+|---|---|
+| Slow queries (> 2s) | 0/min |
+| InnoDB buffer pool hit rate | > 95% |
+| Active connections | < 80% of `max_connections` |
+
+**Queue:**
+| Metric | Target |
+|---|---|
+| `op:queue:default` depth | < 100 |
+| `op_webhook_events` with `status='failed'` | 0 |
+
+### Quick Health Check Script
+
+```bash
+#!/bin/bash
+echo "=== OwnPay Health Check ==="
+
+echo "--- PHP-FPM ---"
+curl -s http://127.0.0.1/fpm-status 2>/dev/null | grep -E 'pool|processes|listen queue'
+
+echo "--- Redis ---"
+redis-cli info stats | grep -E 'keyspace_hits|keyspace_misses|evicted_keys'
+
+echo "--- MariaDB ---"
+mysql -u root -p"$DB_ROOT_PASS" -e "SHOW STATUS LIKE 'Threads_connected';" 2>/dev/null
+mysql -u root -p"$DB_ROOT_PASS" -e "SHOW STATUS LIKE 'Slow_queries';" 2>/dev/null
+
+echo "--- Disk ---"
+df -h /var/www/ownpay/storage
+
+echo "--- Cron Locks ---"
+ls -la /var/www/ownpay/storage/cron/
+
+echo "--- Queue Depth ---"
+redis-cli llen "op:queue:default" 2>/dev/null
+```
+
+## Scaling Decision Matrix
+
+| Signal | Action |
+|---|---|
+| PHP-FPM `listen queue > 0` | Increase `pm.max_children` (add RAM first) |
+| Server RAM > 85% sustained | Upgrade RAM or add an app server |
+| MariaDB `Threads_connected > 80` | Enable connection pooling (ProxySQL) or add a read replica |
+| OPcache hit rate < 90% | Increase `opcache.max_accelerated_files` |
+| Redis `evicted_keys > 0/min` | Increase Redis `maxmemory` |
+| Replication lag > 1 second | Tune `innodb_log_file_size`, check network |
+| Webhook `pending` count growing | Increase `WebhookRetryCron` batch size or add a dedicated queue worker |
+
+<Tip>
+  Start with the Docker Compose single-server stack — it ships Redis and MariaDB pre-configured. Scale vertically first (more RAM = larger InnoDB buffer + more FPM workers). Only add horizontal complexity when vertical scaling is exhausted.
+</Tip>

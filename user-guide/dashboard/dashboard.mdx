@@ -1,0 +1,161 @@
+---
+title: "Admin Dashboard: Metrics, Layout & Navigation"
+sidebarTitle: "Dashboard"
+description: "Explore the OwnPay admin dashboard — key KPI widgets, the recent transactions list, brand context switching, and navigation to all platform sections."
+---
+
+The OwnPay Admin Dashboard is your command center for the entire payment gateway operation. Every time you log in, this is your landing page — a real-time snapshot of transaction volumes, revenue figures, customer counts, and pending activity across your platform. It supports both a global aggregated view spanning all brands and a focused per-brand view, allowing super-administrators and brand-scoped staff alike to get the financial picture they need without navigating deep into individual reports.
+
+## Getting to the Dashboard
+
+After a successful [login](/user-guide/auth/login), you land on the Dashboard automatically. If you are already in another section, click **Dashboard** at the top of the left sidebar to return. The dashboard URL follows your configured domain at the root or `/dashboard` path.
+
+## Dashboard Layout Overview
+
+The page is divided into three primary functional zones:
+
+### 1. Header Navigation Bar
+
+The bar running across the top of the page contains global controls accessible from anywhere in the platform:
+
+| Control | Description |
+|---|---|
+| **Sidebar Toggle** | Hides or expands the left navigation sidebar to maximize screen real estate. |
+| **Brand Context Dropdown** | Switches between **Global View** (all brands, super-admin only) and individual brand/store views. |
+| **Global Search** | Full-text search across transactions, customers, and invoices. |
+| **Theme Toggle** | Switches between Dark and Light mode for comfortable viewing in any environment. |
+| **User Menu** | Access account settings or log out. |
+
+### 2. Key Performance Indicator (KPI) Cards
+
+Beneath the header, a row of metric cards shows aggregated statistics for the **selected brand** and **time range**:
+
+<CardGroup cols={2}>
+  <Card title="Total Revenue" icon="circle-dollar-to-slot" href="/user-guide/payments/transactions">
+    The cumulative value of all **completed** transactions converted to your base currency. This figure reflects real settled income — pending and failed transactions are excluded.
+  </Card>
+  <Card title="Completed Transactions" icon="circle-check" href="/user-guide/payments/transactions">
+    The count of transactions that were successfully processed and confirmed by the payment gateway. Use this alongside total revenue to understand your average transaction value.
+  </Card>
+  <Card title="Pending Transactions" icon="clock" href="/user-guide/payments/transactions">
+    Transactions where the customer initiated checkout but payment has not yet been confirmed. A high pending count may indicate a gateway connectivity issue or an offline SMS parsing device.
+  </Card>
+  <Card title="Total Customers" icon="users" href="/user-guide/dashboard/dashboard">
+    The number of unique customers registered under the selected brand context. Tracks customer acquisition over the chosen time period.
+  </Card>
+</CardGroup>
+
+A **Time Range Selector** above the KPI cards controls the period covered. Available options are **Today**, **Last 7 Days**, **Last 30 Days**, and **All Time**.
+
+<Warning>
+  Always confirm which brand is selected in the **Brand Context Dropdown** before reading the KPI cards. Viewing a single brand's metrics while the Global View is active — or vice versa — leads to reporting errors, especially when preparing financial summaries.
+</Warning>
+
+### 3. Recent Transactions List
+
+Below the KPI cards, the dashboard displays the most recent payment attempts in a scannable table. This lets you quickly verify incoming payments without navigating to the full transactions page.
+
+Each row in the recent transactions list shows:
+
+| Column | Description |
+|---|---|
+| **TRX ID** | The system-generated unique transaction identifier (e.g. `TXN-20260501-0042`). Click to open the full transaction detail view. |
+| **Customer** | The customer name, email address, or phone number associated with the payment. |
+| **Amount** | The transaction amount and currency (e.g. `1,500.00 BDT`). |
+| **Gateway** | The payment processor used (e.g. bKash, Nagad, Stripe, or a manual gateway link). |
+| **Status** | A color-coded badge: green for `completed`, yellow for `pending`, red for `cancelled` or `failed`. |
+| **Date** | The exact creation timestamp of the transaction. |
+
+A **View All** link at the bottom of the list navigates to the full [Transactions](/user-guide/payments/transactions) page.
+
+## Filtering Dashboard Metrics
+
+<Steps>
+  <Step title="Select a brand context">
+    Click the **Brand Selector** dropdown in the header navigation bar. Choose a specific brand (e.g. `My Custom Brand`) to scope all KPI cards and the recent transactions list to that brand's data. Select **Global View** to see aggregated metrics across all brands (super-admin only).
+  </Step>
+  <Step title="Set the time range">
+    Find the **Time Range Selector** in the main content area (above the KPI cards). Click it and choose from **Today**, **Last 7 Days**, **Last 30 Days**, or **All Time**. The KPI cards refresh instantly.
+  </Step>
+  <Step title="Review the KPI cards">
+    Read the updated Total Revenue, Completed, Pending, and Customers figures. These reflect only the selected brand and time window.
+  </Step>
+</Steps>
+
+## Inspecting a Recent Transaction
+
+<Steps>
+  <Step title="Locate the transaction">
+    Scroll to the **Recent Transactions** table and identify the row you want to review.
+  </Step>
+  <Step title="Click the transaction row">
+    Click anywhere on the row (or the **TRX ID** link) to open the transaction details panel. This shows customer metadata, gateway fee breakdowns, the net amount credited to your ledger, and the gateway's own transaction ID.
+  </Step>
+  <Step title="Cross-reference with the Ledger">
+    For financial reconciliation, click the **Ledger** link within the transaction detail panel or navigate to [Ledger](/user-guide/payments/ledger) and search by the transaction reference to see the corresponding double-entry journal postings.
+  </Step>
+</Steps>
+
+## Global View vs. Brand Context
+
+<Tabs>
+  <Tab title="Global View">
+    **Available to:** Super-administrators only.
+
+    The Global View aggregates financial data across **all registered brands** in your OwnPay instance. Use this when:
+    - Comparing revenue performance between white-label store domains.
+    - Auditing the total platform-wide transaction volume.
+    - Generating executive-level financial reports.
+
+    <Info>
+      Staff accounts assigned to specific brands cannot access the Global View. The dropdown will only show the brands they are authorized for.
+    </Info>
+  </Tab>
+  <Tab title="Brand Context">
+    **Available to:** All authenticated users.
+
+    Selecting a specific brand filters all repository queries to a single `merchant_id`. The KPI cards, recent transactions list, and search results all reflect only that brand's activity. This is the default mode for brand-scoped staff members.
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Reconcile with Ledger Weekly" icon="scale-balanced" href="/user-guide/payments/ledger">
+    Cross-check the Total Revenue figure on the dashboard against the current balance on the Ledger page. Discrepancies may indicate unposted manual gateway approvals or pending webhook callbacks.
+  </Card>
+  <Card title="Act on High Pending Counts" icon="triangle-exclamation" href="/user-guide/payments/transactions">
+    A spike in Pending transactions often means the SMS parser device is offline or a gateway webhook is failing. Investigate immediately to avoid customer complaints about unconfirmed payments.
+  </Card>
+  <Card title="Lock Your Session" icon="lock" href="/user-guide/auth/login">
+    Never leave the dashboard open on an unattended screen. Use the **User Menu** to log out, or ensure your OS screen lock activates quickly on idle.
+  </Card>
+  <Card title="Use Global View for Reports" icon="chart-pie" href="/user-guide/dashboard/dashboard">
+    When preparing cross-brand performance summaries, always switch to Global View first. Manually summing individual brand metrics introduces rounding and timing errors.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| All KPI cards show `0.00` and no transactions appear | The selected brand has no transactions for the chosen time range, or you are on a brand with zero history. | Switch the Time Range to **All Time** and verify the correct brand is selected. |
+| "Global View" option is missing from the brand dropdown | Your account is a staff-level account without super-admin privileges. | Log in with the super-administrator account to access the global aggregation view. |
+| Recent transactions list does not update after a new payment | The page may be cached. | Perform a hard refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`) or navigate away and back to the dashboard. |
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Transactions" icon="arrow-right-arrow-left" href="/user-guide/payments/transactions">
+    View and filter the complete transaction history with full customer and gateway details.
+  </Card>
+  <Card title="Ledger" icon="book" href="/user-guide/payments/ledger">
+    Inspect the double-entry bookkeeping journal that underpins every financial figure on the dashboard.
+  </Card>
+  <Card title="Invoices" icon="file-invoice-dollar" href="/user-guide/payments/invoices">
+    Create and track structured invoices sent to customers for goods and services.
+  </Card>
+  <Card title="Payment Links" icon="link" href="/user-guide/payments/payment-links">
+    Generate shareable payment URLs for quick, one-off or recurring collections.
+  </Card>
+</CardGroup>

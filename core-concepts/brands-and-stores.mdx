@@ -1,0 +1,192 @@
+---
+title: "Brands and Stores in OwnPay"
+sidebarTitle: "Brands & Stores"
+description: "How OwnPay's multi-brand architecture isolates merchant entities, enables white-labeling, and scopes customers, gateways, staff, and APIs per brand."
+---
+
+A brand in OwnPay is the fundamental organizational unit — a fully isolated merchant entity that owns its own customers, transactions, payment gateways, staff members, and checkout experience. Understanding how brands work is essential before configuring anything else in OwnPay, because nearly every resource in the system belongs to a brand rather than to the global installation.
+
+## What Is a Brand?
+
+Think of a brand as a complete, self-contained payment operation. When you create a brand, you are creating an isolated partition within your OwnPay installation. Data from one brand is completely invisible to another brand — there is no cross-brand customer leakage, no shared transaction history, and no staff member who accidentally sees another brand's data unless they hold the master administrator role.
+
+Each brand has its own:
+
+- **Customer database** — Separate customer records with no cross-brand visibility
+- **Payment gateways** — Independent gateway credentials and configuration
+- **Staff members** — People scoped to this brand with their own role-based permissions
+- **Checkout experience** — Custom domain, logo, colors, and CSS
+- **API credentials** — Brand-scoped public/secret key pairs
+- **Webhooks** — Independent callback URL and event subscriptions
+- **Ledger** — A separate double-entry bookkeeping record for all transactions
+
+## Multi-Brand Architecture
+
+A single OwnPay installation can host any number of brands simultaneously:
+
+```
+OwnPay Installation
+├── Brand A (Acme Corp)
+│   ├── Customers
+│   ├── Transactions
+│   ├── Staff Members
+│   ├── Payment Gateways
+│   └── Custom Domain → pay.acmecorp.com
+├── Brand B (TechCorp)
+│   ├── Customers
+│   ├── Transactions
+│   ├── Staff Members
+│   ├── Payment Gateways
+│   └── Custom Domain → checkout.techcorp.io
+└── Brand C (StartupCo)
+    ├── Customers
+    ├── Transactions
+    ├── Staff Members
+    ├── Payment Gateways
+    └── Custom Domain → pay.startupco.co
+```
+
+From an infrastructure perspective, all brands run on the same server, database, and OwnPay codebase. From an operational and security perspective, they behave as completely separate systems.
+
+## Brand Configuration Fields
+
+When creating or editing a brand, the following fields are available:
+
+<Tabs>
+  <Tab title="Basic Settings">
+    | Field | Description |
+    |-------|-------------|
+    | **Name** | Public-facing display name for the brand |
+    | **Slug** | URL-safe identifier used in internal routing |
+    | **Currency** | Default currency for new transactions (USD, EUR, BDT, etc.) |
+    | **Timezone** | Used for all timestamp display and report date ranges |
+    | **Contact Email** | Reply-to address for customer-facing transaction emails |
+  </Tab>
+  <Tab title="Branding">
+    | Field | Description |
+    |-------|-------------|
+    | **Logo** | Brand image shown on the checkout page and emails |
+    | **Favicon** | Icon shown in the browser tab during checkout |
+    | **Primary Color** | Hex color for buttons and accents on the checkout UI |
+    | **Custom CSS** | Raw CSS injected into the checkout page for advanced styling |
+    | **Email Templates** | Customizable HTML templates for payment confirmation, receipt, and failure emails |
+  </Tab>
+  <Tab title="Checkout">
+    | Field | Description |
+    |-------|-------------|
+    | **Theme** | Light or dark mode for the hosted checkout page |
+    | **Language** | Locale for checkout copy and error messages |
+    | **Payment Methods** | Which of the brand's configured gateways are displayed on checkout |
+    | **Success Message** | Custom message displayed after a successful payment |
+    | **Failure Message** | Custom message displayed after a declined payment |
+    | **Redirect URL** | Default URL to redirect customers to after checkout completion |
+  </Tab>
+  <Tab title="Advanced">
+    | Field | Description |
+    |-------|-------------|
+    | **Custom Domain** | The brand's checkout and API domain (see Domain Isolation below) |
+    | **Webhook URL** | Global callback URL for all payment events on this brand |
+    | **API Keys** | Manage public/secret key pairs for programmatic access |
+    | **Metadata** | Arbitrary key-value pairs for storing custom brand attributes |
+  </Tab>
+</Tabs>
+
+## White-Labeling
+
+White-labeling in OwnPay means that end customers interacting with the checkout page have no indication they are using OwnPay. The checkout is served under the brand's own domain with the brand's own visual identity.
+
+To fully white-label a brand:
+
+<Steps>
+  <Step title="Add a Custom Domain">
+    Navigate to **Settings → Domains** within the brand context and add the brand's checkout domain (e.g. `pay.acmecorp.com`). Then update your DNS provider to point that domain's A record at your OwnPay server IP.
+  </Step>
+  <Step title="Upload a Brand Logo">
+    Go to **Settings → Branding** and upload a logo. This image appears on the hosted checkout page, payment receipts, and email notifications.
+  </Step>
+  <Step title="Set the Primary Color">
+    Set the primary brand color in **Settings → Branding**. OwnPay uses this color for checkout buttons, links, and accent elements.
+  </Step>
+  <Step title="Customize Email Templates">
+    Edit the email templates in **Settings → Email Templates** to replace any generic language with the brand's name, contact information, and support details.
+  </Step>
+  <Step title="Apply Custom CSS (Optional)">
+    For pixel-level control over the checkout appearance, add custom CSS in **Settings → Branding → Custom CSS**. This is injected directly into the checkout page.
+  </Step>
+</Steps>
+
+## Domain Isolation
+
+Each brand can be served on its own custom domain. When a customer visits `pay.acmecorp.com`, OwnPay identifies the corresponding brand from the incoming hostname, loads that brand's configuration, and renders the checkout in that brand's visual identity — without any OwnPay branding visible.
+
+The brand's API also operates on its custom domain:
+
+```
+https://{brand_domain}/api/v1
+```
+
+For example:
+
+```
+https://pay.acmecorp.com/api/v1/payments
+https://pay.acmecorp.com/api/v1/customers
+```
+
+This means that API calls from a brand's application are scoped to that brand by virtue of the domain they target. You do not need to pass a brand identifier in the request body — the domain determines the brand context.
+
+<Info>
+  DNS propagation can take up to 48 hours after updating an A record. For SSL to work correctly on a custom domain, the DNS must be fully propagated before requesting a certificate. OwnPay will attempt to auto-provision an SSL certificate for the custom domain once DNS resolves correctly.
+</Info>
+
+## Brand Access Control
+
+Access to brand data is governed by the role assigned to each user. There are three meaningful scopes:
+
+| Role | Brand Access |
+|------|-------------|
+| **Master Administrator** | All brands — create, read, update, and delete any resource across the entire installation |
+| **Brand Manager / Staff** | Only the brand(s) they have been explicitly assigned to |
+| **View-Only / Auditor** | Read-only access to the brand(s) they are assigned to |
+
+The master administrator is the only user who can create new brands and access data across all of them. Brand-level staff are fully confined to their assigned brand. See [User Roles and Permissions](/core-concepts/user-roles-permissions) for the complete RBAC model.
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Platform Operators" icon="server" href="/core-concepts/user-roles-permissions">
+    Host payment processing for multiple businesses on one installation. Each business is a brand with complete data isolation.
+  </Card>
+  <Card title="Agency Owners" icon="paintbrush" href="/getting-started/first-steps">
+    White-label checkout flows for clients. Each client gets a custom domain, logo, and checkout theme with no OwnPay branding.
+  </Card>
+  <Card title="Multi-Location Retailers" icon="store" href="/core-concepts/payment-flow">
+    Use a single brand for the company and separate stores for each physical location or sales channel.
+  </Card>
+  <Card title="Enterprise Deployments" icon="building" href="/core-concepts/user-roles-permissions">
+    Isolate payment processing by division or subsidiary while maintaining a unified management console for the master admin.
+  </Card>
+</CardGroup>
+
+## Creating a Brand
+
+<Steps>
+  <Step title="Navigate to Brands">
+    From the master admin sidebar, go to **People → Brands**.
+  </Step>
+  <Step title="Add Brand">
+    Click **Add Brand** and fill in the brand name, default currency, timezone, and contact email.
+  </Step>
+  <Step title="Configure Payment Gateways">
+    After the brand is created, switch to the brand context and go to **Gateways → Add Gateway** to connect at least one payment provider.
+  </Step>
+  <Step title="Invite Staff (Optional)">
+    Go to **People → Staff** within the brand context to invite team members and assign roles.
+  </Step>
+  <Step title="Set a Custom Domain (Optional)">
+    Go to **Settings → Domains** to add the brand's checkout domain and begin the DNS configuration process.
+  </Step>
+</Steps>
+
+<Note>
+  You must create at least one brand before you can process any payment. The master admin dashboard manages brands but does not process payments itself — payments are always associated with a specific brand.
+</Note>

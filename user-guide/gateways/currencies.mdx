@@ -1,0 +1,145 @@
+---
+title: "Managing Currencies & Exchange Rates in OwnPay"
+sidebarTitle: "Currencies & Rates"
+description: "Configure your brand's base currency, set automatic or manual exchange rates, and manage checkout session expiry and invoice due dates."
+---
+
+The Currencies & Rates panel governs how OwnPay prices and converts transactions across your brand's checkout flows. Every brand operates with a single base (default) currency that anchors its ledger, reporting, and invoice totals. When customers pay in a different currency, OwnPay applies the configured exchange rate to calculate the correct amount. Administrators also control how long a checkout session stays alive before expiring and how many days an invoice remains open before becoming overdue.
+
+## Navigating to Currencies & Rates
+
+In the OwnPay admin dashboard, expand the **GATEWAYS** section in the left sidebar and click **Currencies & Rates**. The settings panel opens with currency, exchange rate, and lifecycle controls grouped on a single page.
+
+## Base Currency
+
+The **Default Currency** is the primary denomination for all transactions, ledger entries, and report totals on your brand. Select it from the dropdown — OwnPay supports all major ISO 4217 currency codes. Once transactions have been recorded under a currency, changing the default will affect how historical amounts are reported, so set this value carefully before you go live.
+
+### Supported Currencies
+
+The following currencies are available as the default base currency:
+
+| Code | Currency | Symbol |
+|---|---|---|
+| BDT | Bangladeshi Taka | ৳ |
+| USD | US Dollar | $ |
+| EUR | Euro | € |
+| GBP | British Pound Sterling | £ |
+| INR | Indian Rupee | ₹ |
+| AUD | Australian Dollar | A$ |
+| CAD | Canadian Dollar | C$ |
+| SGD | Singapore Dollar | S$ |
+| MYR | Malaysian Ringgit | RM |
+| PKR | Pakistani Rupee | ₨ |
+
+<Note>
+  OwnPay stores currency codes following the ISO 4217 three-letter standard. Always use the three-character code (e.g. `BDT`, `USD`) when referencing currencies in API calls or plugin configurations — do not use currency symbols.
+</Note>
+
+## Exchange Rate Configuration
+
+When a customer's checkout is denominated in a currency different from your brand's default, OwnPay applies an exchange rate to convert the value. Two modes are available:
+
+<CardGroup cols={2}>
+  <Card title="Automatic Rates" icon="arrows-rotate" href="/user-guide/gateways/currencies#automatic-exchange-rates">
+    OwnPay periodically fetches live conversion rates from a public exchange rate API and updates them automatically. Requires a running server cron job.
+  </Card>
+  <Card title="Manual Rates" icon="pen-to-square" href="/user-guide/gateways/currencies#manual-exchange-rates">
+    You hardcode a fixed conversion factor for each currency pair directly in the settings. Rates stay static until you change them.
+  </Card>
+</CardGroup>
+
+### Changing the Exchange Rate Mode
+
+<Steps>
+  <Step title="Open Currencies & Rates">
+    Navigate to **Gateways → Currencies & Rates** in the admin sidebar.
+  </Step>
+  <Step title="Select your exchange rate mode">
+    Open the **Exchange Rate Update** dropdown and choose either **Automatic** or **Manual**.
+  </Step>
+  <Step title="Save settings">
+    Click **Save Settings** to apply the change immediately.
+  </Step>
+  <Step title="If using Automatic — verify your cron job">
+    Confirm that the server's scheduled task runner is active. The cron job must execute at regular intervals (recommended: every hour) for automatic rates to refresh.
+  </Step>
+</Steps>
+
+<Warning>
+  If you select **Automatic** exchange rate updates but your server's cron job scheduler is not running, OwnPay will continue to use stale cached rates. Verify your cron configuration after enabling automatic updates, especially on new installations.
+</Warning>
+
+## Changing the Base Currency
+
+<Steps>
+  <Step title="Open Currencies & Rates">
+    Navigate to **Gateways → Currencies & Rates**.
+  </Step>
+  <Step title="Open the Default Currency dropdown">
+    Click the **Default Currency** dropdown and select your desired base currency (e.g. `USD – US Dollar`).
+  </Step>
+  <Step title="Save settings">
+    Click **Save Settings**. All new transactions, invoices, and report calculations will now use the selected currency as the base denomination.
+  </Step>
+</Steps>
+
+<Warning>
+  Changing the base currency after transactions have already been recorded will cause inconsistencies in financial reports and ledger totals. Historical entries remain in the original currency, while new entries use the updated one. Only change the default currency before your brand processes its first live payment.
+</Warning>
+
+## Payment Lifecycle Settings
+
+Beyond currency, the Currencies & Rates panel controls two important timing settings that affect the customer payment experience.
+
+### Payment Expiry
+
+The **Payment Expiry (minutes)** setting defines how long a customer's checkout page remains active before it automatically expires. Once expired, the transaction status transitions to `cancelled` or `expired`, and the checkout link becomes invalid.
+
+- **Minimum:** 5 minutes
+- **Maximum:** 1,440 minutes (24 hours)
+- **Default:** 30 minutes
+
+<Tip>
+  Set the expiry to at least 15–30 minutes to give customers enough time to navigate their mobile banking app, complete the transfer, and submit their transaction ID. Expiry times under 10 minutes frequently lead to abandoned checkouts, especially for manual wallet gateways.
+</Tip>
+
+### Invoice Due Days
+
+**Invoice Due Days** sets the default number of days from the invoice creation date before a customer invoice becomes overdue. This applies to invoices issued directly from the Payments → Invoices section.
+
+- **Minimum:** 1 day
+- **Maximum:** 365 days
+- **Default:** 7 days
+
+## Auto-Approve Verified Payments
+
+The **Auto-approve verified payments** toggle controls whether transactions that are matched via SMS parsing are completed automatically without manual administrator review.
+
+| State | Behaviour |
+|---|---|
+| **Enabled** | When an incoming SMS matches a pending transaction's ID and amount, the transaction is automatically marked `completed` and the ledger is updated. |
+| **Disabled** | Matched transactions are flagged for review but remain in a `pending` state until an administrator manually approves them. |
+
+## Settings Reference
+
+| Setting | Type | Range / Options | Default | Description |
+|---|---|---|---|---|
+| **Default Currency** | Select | ISO 4217 codes | BDT | Base denomination for all brand transactions and reports. |
+| **Exchange Rate Update** | Select | Automatic, Manual | Automatic | Method used to retrieve or set currency conversion rates. |
+| **Payment Expiry (minutes)** | Number | 5 – 1440 | 30 | Checkout session lifespan before auto-cancellation. |
+| **Invoice Due Days** | Number | 1 – 365 | 7 | Days before an unpaid invoice is flagged as overdue. |
+| **Auto-approve payments** | Toggle | Enabled / Disabled | Enabled | Automatically complete SMS-matched transactions. |
+
+## Troubleshooting
+
+<Accordion title="Checkout pages are timing out too quickly for customers">
+  The Payment Expiry duration is likely set too low. Increase it to at least 15 or 30 minutes and click **Save Settings**. Manual wallet customers in particular need time to open their banking app, execute the transfer, and return to the checkout to submit their Transaction ID.
+</Accordion>
+
+<Accordion title="Automatic exchange rates are not refreshing">
+  The external rates API fetch relies on the server's cron job scheduler. Check that your scheduler is running (for Laravel-based installations this is typically `php artisan schedule:run` executed every minute). If the rates API endpoint is blocked by a server firewall, switch to **Manual** rates as a temporary fix while you resolve the network access issue.
+</Accordion>
+
+<Accordion title="Report totals look wrong after changing the base currency">
+  Historical transactions are stored in the currency that was active when they were created. After a currency change, old records retain their original denomination while new records use the updated currency. To get consistent multi-period totals, filter your reports by date ranges that fall entirely within one currency period.
+</Accordion>

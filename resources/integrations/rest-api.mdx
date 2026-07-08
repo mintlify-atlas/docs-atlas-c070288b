@@ -1,0 +1,858 @@
+---
+title: "OwnPay Merchant REST API Reference Guide"
+sidebarTitle: "REST API"
+description: "Complete reference for all OwnPay REST API endpoints — authentication, payments, transactions, refunds, customers, API keys, and webhooks."
+---
+
+OwnPay exposes a full-featured HTTP/JSON API that lets you initiate payment intents, query transactions, issue refunds, manage customer profiles, rotate API keys, and inspect webhook delivery logs — all from any language or platform without any proprietary SDK. Every brand operates on its own isolated subdomain, so your API traffic never touches another brand's data.
+
+## Base URL
+
+The API is served from **your brand's own custom domain**, configured in **Admin → System → Domains**:
+
+```
+https://{your_brand_domain}/api/v1
+```
+
+Replace `{your_brand_domain}` with the domain you configured (e.g. `pay.yourbrand.com`). Every brand gets a completely isolated API endpoint.
+
+---
+
+## Authentication
+
+All endpoints (except `GET /health`) require a **Bearer API key** in the `Authorization` header:
+
+```http
+Authorization: Bearer op.xxxxxxxxxxxxx
+```
+
+API keys carry one or more **scopes** that control what the key is permitted to do:
+
+| Scope | Access level |
+|-------|-------------|
+| `read` | Query transactions, customers, refunds, delivery logs |
+| `write` | Create payments, issue refunds, create customers |
+| `admin` | Key management (must be combined with `write`) |
+
+<Warning>
+API keys are shown **exactly once** at creation time. Copy and store them in a secrets manager (e.g. AWS Secrets Manager, HashiCorp Vault, or a `.env` file outside version control) immediately. There is no way to retrieve the full key value again.
+</Warning>
+
+<Note>
+Key management endpoints (`GET /api-keys`, `POST /api-keys`, `DELETE /api-keys/{id}`) require both the `write` **and** `admin` scopes, plus the `X-Super-Admin-Email` request header.
+</Note>
+
+---
+
+## Response Format
+
+All responses are JSON. Successful responses wrap the result in a `data` envelope:
+
+```json
+{
+  "success": true,
+  "data": { ... }
+}
+```
+
+Error responses include a human-readable `error` string, an optional `errors` array with per-field details, and a `request_id` for support correlation:
+
+```json
+{
+  "success": false,
+  "error": "amount must be a positive number",
+  "errors": [
+    {
+      "code": "INVALID_AMOUNT",
+      "message": "amount must be a positive number",
+      "field": "amount"
+    }
+  ],
+  "request_id": "8f5a2e9b0c7d4e5f"
+}
+```
+
+### HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| `200` | OK — request succeeded |
+| `201` | Created — resource was created |
+| `400` | Bad request or business rule violation |
+| `401` | Missing or invalid API key |
+| `403` | Insufficient scope or permission |
+| `404` | Resource not found (or belongs to another brand) |
+| `409` | Conflict (e.g. duplicate email on customer create) |
+| `422` | Validation failure — check the `errors` array |
+| `500` | Internal server error |
+| `503` | System degraded — retry with exponential back-off |
+
+---
+
+## Endpoints
+
+### Health Check
+
+<ParamField path="GET /health" type="endpoint">
+  Returns system status including database connectivity, active gateway count, paired mobile devices, and the running version. **No authentication required.**
+</ParamField>
+
+<ResponseField name="status" type="string">
+  `"healthy"` (HTTP 200) or `"degraded"` (HTTP 503).
+</ResponseField>
+
+<ResponseField name="version" type="string">
+  Currently running OwnPay version string.
+</ResponseField>
+
+<ResponseField name="db" type="string">
+  Database connection state — `"connected"` or `"error"`.
+</ResponseField>
+
+<ResponseField name="mobile" type="object">
+  Mobile device pairing info.
+  <Expandable title="mobile fields">
+    <ResponseField name="connected" type="boolean">Whether at least one mobile device is paired.</ResponseField>
+    <ResponseField name="active_devices" type="integer">Count of currently active paired devices.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="gateways" type="integer">
+  Number of active payment gateways configured for the brand.
+</ResponseField>
+
+<ResponseField name="customers" type="integer">
+  Total number of customer profiles in the brand.
+</ResponseField>
+
+<ResponseField name="time" type="string">
+  ISO 8601 server timestamp at the time of the request.
+</ResponseField>
+
+```http
+GET /api/v1/health
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "healthy",
+    "version": "0.1.0",
+    "db": "connected",
+    "mobile": {
+      "connected": true,
+      "active_devices": 2
+    },
+    "gateways": 3,
+    "customers": 142,
+    "time": "2026-06-23T14:15:45Z"
+  }
+}
+```
+
+---
+
+### Payments
+
+#### Initiate a Payment Intent
+
+```http
+POST /api/v1/payments
+```
+
+Creates a new payment session and returns a secure, white-labeled checkout URL to redirect your customer to. The session remains valid until the customer completes or cancels payment.
+
+**Request fields:**
+
+<ParamField body="amount" type="string" required>
+  Positive numeric string with exactly 2 decimal places. Example: `"500.00"`.
+</ParamField>
+
+<ParamField body="currency" type="string" required>
+  ISO 4217 currency code supported by your brand. Example: `"BDT"`, `"USD"`.
+</ParamField>
+
+<ParamField body="callback_url" type="string">
+  Webhook URL for `payment.completed` callbacks. Must be a valid HTTP or HTTPS URI.
+</ParamField>
+
+<ParamField body="redirect_url" type="string">
+  Where to send the customer after a successful payment.
+</ParamField>
+
+<ParamField body="cancel_url" type="string">
+  Where to send the customer if they cancel during checkout.
+</ParamField>
+
+<ParamField body="customer_email" type="string">
+  Customer email address for identity mapping and masked display.
+</ParamField>
+
+<ParamField body="customer_name" type="string">
+  Customer full name. Maximum 150 characters.
+</ParamField>
+
+<ParamField body="customer_phone" type="string">
+  Customer phone number. Maximum 30 characters.
+</ParamField>
+
+<ParamField body="reference" type="string">
+  Your internal order or invoice identifier. Example: `"INV-10029"`. Stored and returned on the transaction for reconciliation.
+</ParamField>
+
+<ParamField body="gateway" type="string">
+  Route this payment to a specific gateway by its slug. Example: `"bkash-merchant"`. Omit to let OwnPay auto-select.
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Arbitrary key-value map for your own data. Stored on the transaction and returned as-is.
+</ParamField>
+
+**Response fields (201):**
+
+<ResponseField name="payment_id" type="string">
+  UUID of the created payment intent. Use this to poll status via `GET /payments/{payment_id}`.
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  Short-lived session token embedded in the checkout URL.
+</ResponseField>
+
+<ResponseField name="checkout_url" type="string">
+  Fully-formed URL to redirect your customer to. The URL uses your brand's custom domain.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Always `"created"` on a fresh intent.
+</ResponseField>
+
+<CodeGroup>
+```http Request
+POST /api/v1/payments
+Authorization: Bearer op_live_...
+Content-Type: application/json
+
+{
+  "amount": "500.00",
+  "currency": "BDT",
+  "callback_url": "https://my-store.com/webhooks/ownpay",
+  "redirect_url": "https://my-store.com/checkout/success",
+  "cancel_url": "https://my-store.com/checkout/cancel",
+  "customer_email": "customer@example.com",
+  "customer_name": "John Doe",
+  "reference": "INV-10029",
+  "metadata": {
+    "store_id": "dhaka-branch"
+  }
+}
+```
+
+```json Response 201
+{
+  "success": true,
+  "data": {
+    "payment_id": "a810b445-564a-4e20-80a5-f1261d7b328a",
+    "token": "tok_4821a8f902bd3f46",
+    "checkout_url": "https://pay.yourbrand.com/checkout/tok_4821a8f902bd3f46",
+    "status": "created"
+  }
+}
+```
+</CodeGroup>
+
+<Tip>
+Redirect your customer to `checkout_url` immediately after receiving the `201` response. Store the `payment_id` in your session so you can verify the outcome when the customer returns or when you receive the webhook.
+</Tip>
+
+---
+
+#### Retrieve Payment Details
+
+```http
+GET /api/v1/payments/{payment_id}
+```
+
+Looks up a payment intent by its UUID. If a transaction has been completed, full transaction details are returned; otherwise the pending intent state is returned.
+
+<ParamField path="payment_id" type="string" required>
+  UUID of the payment intent returned by `POST /payments`.
+</ParamField>
+
+<ResponseField name="id" type="integer">
+  Internal transaction integer ID. `null` if the payment has not completed.
+</ResponseField>
+
+<ResponseField name="trx_id" type="string">
+  OwnPay transaction reference (e.g. `"OP-481029304"`). `null` if not completed.
+</ResponseField>
+
+<ResponseField name="gateway_trx_id" type="string">
+  Gateway's own transaction identifier. `null` if not completed.
+</ResponseField>
+
+<ResponseField name="amount" type="string">
+  Transaction amount as a decimal string.
+</ResponseField>
+
+<ResponseField name="currency" type="string">
+  ISO 4217 currency code.
+</ResponseField>
+
+<ResponseField name="fee" type="string">
+  Gateway fee deducted from the transaction.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Transaction status: `completed`, `pending`, `failed`, `cancelled`, or `processing`.
+</ResponseField>
+
+<ResponseField name="gateway" type="string">
+  Gateway slug that processed the payment.
+</ResponseField>
+
+<ResponseField name="method" type="string">
+  Payment method used (e.g. `"app"`, `"card"`, `"ussd"`).
+</ResponseField>
+
+<ResponseField name="reference" type="string">
+  Your internal order/invoice ID passed at payment creation.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp when the payment intent was created.
+</ResponseField>
+
+<ResponseField name="completed_at" type="string">
+  ISO 8601 timestamp when the payment was completed. `null` if not completed.
+</ResponseField>
+
+<ResponseField name="customer" type="object">
+  Customer identity snapshot.
+  <Expandable title="customer fields">
+    <ResponseField name="name" type="string">Customer full name.</ResponseField>
+    <ResponseField name="email" type="string">Customer email address.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 45,
+    "trx_id": "OP-481029304",
+    "gateway_trx_id": "A8K9D2J3S",
+    "amount": "500.00",
+    "currency": "BDT",
+    "fee": "7.50",
+    "status": "completed",
+    "gateway": "bkash",
+    "method": "app",
+    "reference": "INV-10029",
+    "created_at": "2026-06-23T14:15:45Z",
+    "completed_at": "2026-06-23T14:17:12Z",
+    "customer": {
+      "name": "John Doe",
+      "email": "customer@example.com"
+    }
+  }
+}
+```
+
+---
+
+### Transactions
+
+#### List Transactions
+
+```http
+GET /api/v1/transactions
+```
+
+Returns a paginated list of all completed and in-progress transactions for your brand.
+
+<ParamField query="page" type="integer">
+  Page number. Defaults to `1`.
+</ParamField>
+
+<ParamField query="per_page" type="integer">
+  Records per page. Maximum `100`, default `25`.
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by status: `completed`, `pending`, `failed`, `cancelled`, or `processing`.
+</ParamField>
+
+<ParamField query="gateway" type="string">
+  Filter by gateway slug (e.g. `"bkash"`, `"nagad"`).
+</ParamField>
+
+<ParamField query="from" type="string">
+  Start date boundary in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField query="to" type="string">
+  End date boundary in `YYYY-MM-DD` format.
+</ParamField>
+
+<CodeGroup>
+```http Request
+GET /api/v1/transactions?status=completed&from=2026-06-01&to=2026-06-30&per_page=50
+Authorization: Bearer op.xxxxx
+```
+
+```json Response 200
+{
+  "success": true,
+  "data": [
+    {
+      "id": 45,
+      "trx_id": "OP-481029304",
+      "gateway_trx_id": "A8K9D2J3S",
+      "amount": "500.00",
+      "currency": "BDT",
+      "fee": "7.50",
+      "net_amount": "492.50",
+      "status": "completed",
+      "gateway": "bkash",
+      "method": "app",
+      "reference": "INV-10029",
+      "created_at": "2026-06-23T14:15:45Z",
+      "updated_at": "2026-06-23T14:17:15Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "per_page": 25,
+    "total": 120,
+    "total_pages": 5
+  }
+}
+```
+</CodeGroup>
+
+---
+
+#### Retrieve a Transaction
+
+```http
+GET /api/v1/transactions/{trx_id}
+```
+
+Looks up a single transaction by OwnPay reference (e.g. `OP-481029304`) or by the gateway's own transaction ID. OwnPay IDs are matched first.
+
+<ParamField path="trx_id" type="string" required>
+  OwnPay transaction reference (`OP-XXXXXXX`) or gateway transaction ID.
+</ParamField>
+
+Returns the same shape as a single item from the list response above.
+
+---
+
+### Refunds
+
+#### List Refunds
+
+```http
+GET /api/v1/refunds
+```
+
+Returns a paginated list of refunds for your brand.
+
+<ParamField query="page" type="integer">Page number, default `1`.</ParamField>
+<ParamField query="per_page" type="integer">Max `100`, default `25`.</ParamField>
+<ParamField query="status" type="string">Filter: `completed`, `pending`, or `failed`.</ParamField>
+<ParamField query="trx_id" type="string">Filter by OwnPay or gateway transaction reference.</ParamField>
+<ParamField query="transaction_id" type="integer">Filter by internal transaction integer ID.</ParamField>
+<ParamField query="from" type="string">Start date boundary (`YYYY-MM-DD`).</ParamField>
+<ParamField query="to" type="string">End date boundary (`YYYY-MM-DD`).</ParamField>
+
+---
+
+#### Request a Refund
+
+```http
+POST /api/v1/refunds
+```
+
+Issues a full or partial refund on a completed transaction. The refund amount cannot exceed the remaining refundable balance on the transaction.
+
+<ParamField body="trx_id" type="string" required>
+  OwnPay transaction reference (`OP-12345`) or gateway transaction ID. Exactly one of `trx_id` or `transaction_id` must be provided.
+</ParamField>
+
+<ParamField body="transaction_id" type="integer">
+  Alternative identifier: the internal integer transaction ID.
+</ParamField>
+
+<ParamField body="amount" type="string">
+  Partial refund amount as a decimal string. Omit to issue a full refund for the entire remaining balance.
+</ParamField>
+
+<ParamField body="reason" type="string">
+  Human-readable reason for the refund. Stored on the refund record.
+</ParamField>
+
+<ResponseField name="id" type="integer">Internal refund integer ID.</ResponseField>
+<ResponseField name="uuid" type="string">Refund UUID.</ResponseField>
+<ResponseField name="transaction_id" type="integer">Internal ID of the parent transaction.</ResponseField>
+<ResponseField name="trx_id" type="string">OwnPay transaction reference.</ResponseField>
+<ResponseField name="gateway_trx_id" type="string">Gateway transaction ID.</ResponseField>
+<ResponseField name="amount" type="string">Refunded amount as a decimal string.</ResponseField>
+<ResponseField name="reason" type="string">Reason provided at refund creation.</ResponseField>
+<ResponseField name="status" type="string">Refund status: `completed`, `pending`, or `failed`.</ResponseField>
+<ResponseField name="processed_at" type="string">ISO 8601 timestamp when the refund was processed by the gateway.</ResponseField>
+<ResponseField name="created_at" type="string">ISO 8601 timestamp when the refund record was created.</ResponseField>
+
+<CodeGroup>
+```http Request
+POST /api/v1/refunds
+Authorization: Bearer op.xxxxx
+Content-Type: application/json
+
+{
+  "trx_id": "OP-481029304",
+  "amount": "150.00",
+  "reason": "Customer requested return"
+}
+```
+
+```json Response 201
+{
+  "success": true,
+  "data": {
+    "id": 12,
+    "uuid": "d2f44778-d421-4f1e-9271-70bf8e3b123a",
+    "transaction_id": 45,
+    "trx_id": "OP-481029304",
+    "gateway_trx_id": "A8K9D2J3S",
+    "amount": "150.00",
+    "reason": "Customer requested return",
+    "status": "completed",
+    "processed_at": "2026-06-23T14:20:00Z",
+    "created_at": "2026-06-23T14:19:55Z"
+  }
+}
+```
+</CodeGroup>
+
+---
+
+#### Retrieve a Refund
+
+```http
+GET /api/v1/refunds/{trx_id}
+```
+
+Returns the latest refund record for a transaction, identified by OwnPay or gateway transaction ID.
+
+<ParamField path="trx_id" type="string" required>
+  OwnPay transaction reference or gateway transaction ID.
+</ParamField>
+
+---
+
+### Customers
+
+Customer PII (name, email, phone) is stored **AES-256-GCM encrypted** at rest. Decryption happens only on explicit single-record retrieval — the list endpoint returns masked values for safe display.
+
+#### List Customers
+
+```http
+GET /api/v1/customers
+```
+
+Returns masked PII in the list (`email_masked`, `phone_masked`). Full values require a dedicated lookup via `GET /customers/{identifier}`.
+
+<ParamField query="page" type="integer">Page number, default `1`.</ParamField>
+<ParamField query="per_page" type="integer">Records per page, default `25`.</ParamField>
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 58,
+      "uuid": "83b9c9d2-b2f4-4df1-bc1e-b810d1c810d1",
+      "name": "Alice Smith",
+      "email_masked": "a***e@example.com",
+      "phone_masked": "+88018******00",
+      "created_at": "2026-06-23T14:15:45Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "per_page": 25,
+    "total": 98
+  }
+}
+```
+
+---
+
+#### Create a Customer
+
+```http
+POST /api/v1/customers
+```
+
+Creates a new customer profile. Email must be unique within the brand. Returns the new record's `id` and `uuid` — full PII is not echoed back.
+
+<ParamField body="name" type="string" required>
+  Customer full display name.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Customer email address. Must be unique per brand. Returns `409` on duplicate.
+</ParamField>
+
+<ParamField body="phone" type="string">
+  Customer phone number.
+</ParamField>
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 58,
+    "uuid": "83b9c9d2-b2f4-4df1-bc1e-b810d1c810d1"
+  }
+}
+```
+
+---
+
+#### Retrieve a Customer
+
+```http
+GET /api/v1/customers/{identifier}
+```
+
+Looks up a customer by **email address** or **phone number** (URL-encoded). Returns fully decrypted PII. If the identifier contains `@` it is resolved via email hash; otherwise via phone number hash.
+
+<ParamField path="identifier" type="string" required>
+  URL-encoded email address (e.g. `customer%40example.com`) or phone number.
+</ParamField>
+
+<CodeGroup>
+```http Request
+GET /api/v1/customers/customer%40example.com
+Authorization: Bearer op.xxxxxx
+```
+
+```json Response 200
+{
+  "success": true,
+  "data": {
+    "id": 58,
+    "uuid": "83b9c9d2-b2f4-4df1-bc1e-b810d1c810d1",
+    "name": "Alice Smith",
+    "email": "alice@example.com",
+    "phone": "+8801800000000",
+    "created_at": "2026-06-23T14:15:45Z"
+  }
+}
+```
+</CodeGroup>
+
+---
+
+### API Keys
+
+<Warning>
+All key management endpoints require both the `write` **and** `admin` scopes on your API key, plus the `X-Super-Admin-Email` header set to the super-admin email address of the brand.
+</Warning>
+
+#### List API Keys
+
+```http
+GET /api/v1/api-keys
+X-Super-Admin-Email: admin@yourdomain.com
+```
+
+Returns metadata for all brand API keys. Key secrets are **never** returned in any response.
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 4,
+      "name": "POS-System-Integration",
+      "prefix": "op.xxx",
+      "status": "active",
+      "last_used": "2026-06-23T14:18:22Z",
+      "expires_at": null,
+      "created_at": "2026-06-21T09:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### Generate an API Key
+
+```http
+POST /api/v1/api-keys
+X-Super-Admin-Email: admin@yourdomain.com
+```
+
+<ParamField body="name" type="string">
+  Friendly label for the key to help identify its purpose (e.g. `"POS-System-Integration"`).
+</ParamField>
+
+<ParamField body="scopes" type="string[]">
+  Array of scopes to grant. Valid combinations: `["read"]`, `["read","write"]`, or `["read","write","admin"]`.
+</ParamField>
+
+<Warning>
+The full key value is returned **exactly once** in the `201` response. It cannot be retrieved again. Store it immediately in your secrets manager.
+</Warning>
+
+```json
+{
+  "success": true,
+  "data": {
+    "key": "op.xxxxx.xxxxxx",
+    "prefix": "op.xxxxxx",
+    "warning": "Store this key securely. It cannot be retrieved again."
+  }
+}
+```
+
+---
+
+#### Revoke an API Key
+
+```http
+DELETE /api/v1/api-keys/{id}
+X-Super-Admin-Email: admin@yourdomain.com
+```
+
+Revokes a key immediately by its integer ID. All subsequent requests using the revoked key will receive `401 Unauthorized`.
+
+<ParamField path="id" type="integer" required>
+  Integer ID of the API key to revoke (see `id` from the list response).
+</ParamField>
+
+---
+
+### Webhooks
+
+#### Dispatch a Test Webhook
+
+```http
+POST /api/v1/webhooks/tests
+```
+
+Fires a sample `payment.completed` payload to your configured brand callback URL. Useful for verifying that your endpoint is reachable and returns a `2xx` status.
+
+<ResponseField name="status_code" type="integer">
+  HTTP status code returned by your webhook endpoint.
+</ResponseField>
+
+<ResponseField name="response_time_ms" type="integer">
+  Round-trip time in milliseconds from OwnPay's server to your endpoint.
+</ResponseField>
+
+```json
+{
+  "success": true,
+  "data": {
+    "status_code": 200,
+    "response_time_ms": 245
+  }
+}
+```
+
+---
+
+#### Webhook Delivery Log
+
+```http
+GET /api/v1/webhooks/deliveries
+```
+
+Returns the 50 most recent webhook delivery attempts for your brand, including the full payload sent, the HTTP status received, retry count, and delivery status.
+
+<ResponseField name="id" type="integer">Internal delivery attempt ID.</ResponseField>
+<ResponseField name="transaction_id" type="integer">ID of the transaction that triggered the delivery.</ResponseField>
+<ResponseField name="event" type="string">Event type — currently always `"payment.completed"`.</ResponseField>
+<ResponseField name="url" type="string">Webhook URL the payload was delivered to.</ResponseField>
+<ResponseField name="payload" type="string">JSON string of the payload that was sent.</ResponseField>
+<ResponseField name="response_status" type="integer">HTTP status code returned by your endpoint.</ResponseField>
+<ResponseField name="response_body" type="string">First portion of the response body from your endpoint.</ResponseField>
+<ResponseField name="attempts" type="integer">Number of delivery attempts made so far.</ResponseField>
+<ResponseField name="status" type="string">Delivery status: `"success"` or `"failed"`.</ResponseField>
+<ResponseField name="created_at" type="string">ISO 8601 timestamp of the first delivery attempt.</ResponseField>
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1024,
+      "transaction_id": 45,
+      "event": "payment.completed",
+      "url": "https://my-store.com/webhooks/ownpay",
+      "payload": "{\"event\":\"payment.completed\",\"data\":{\"trx_id\":\"OP-481029304\",\"amount\":\"500.00\"}}",
+      "response_status": 200,
+      "response_body": "OK",
+      "attempts": 1,
+      "status": "success",
+      "created_at": "2026-06-23T14:17:15Z"
+    }
+  ]
+}
+```
+
+---
+
+## Webhook Events
+
+OwnPay POSTs a JSON payload to your `callback_url` when a payment is completed. Your endpoint must return an HTTP `2xx` status within **10 seconds**. Failed deliveries are retried automatically — check the delivery log for retry history.
+
+### `payment.completed` Payload
+
+```json
+{
+  "event": "payment.completed",
+  "data": {
+    "trx_id": "OP-481029304",
+    "gateway_trx_id": "A8K9D2J3S",
+    "amount": "500.00",
+    "currency": "BDT",
+    "status": "completed",
+    "reference": "INV-10029",
+    "gateway": "bkash"
+  }
+}
+```
+
+<Warning>
+Always verify a webhook by querying `GET /payments/{payment_id}` or `GET /transactions/{trx_id}` before fulfilling an order. **Never trust the webhook payload alone** — it could be replayed or forged by a third party.
+</Warning>
+
+---
+
+## Quick Reference
+
+| Endpoint | Method | Required Scope |
+|----------|--------|----------------|
+| `GET /health` | System health | None |
+| `POST /payments` | Initiate payment intent | `write` |
+| `GET /payments/{id}` | Payment details | `read` |
+| `GET /transactions` | List transactions | `read` |
+| `GET /transactions/{id}` | Single transaction | `read` |
+| `GET /refunds` | List refunds | `read` |
+| `POST /refunds` | Request a refund | `write` |
+| `GET /refunds/{id}` | Single refund | `read` |
+| `GET /customers` | List customers | `read` |
+| `POST /customers` | Create customer | `write` |
+| `GET /customers/{id}` | Customer details | `read` |
+| `GET /api-keys` | List API keys | `write` + `admin` |
+| `POST /api-keys` | Generate API key | `write` + `admin` |
+| `DELETE /api-keys/{id}` | Revoke API key | `write` + `admin` |
+| `POST /webhooks/tests` | Test webhook delivery | `write` |
+| `GET /webhooks/deliveries` | Delivery log | `read` |

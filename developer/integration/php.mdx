@@ -1,0 +1,390 @@
+---
+title: "OwnPay PHP Integration Guide: Payments and Webhooks"
+sidebarTitle: "PHP"
+description: "Integrate OwnPay into PHP 8.3+ apps using the native HTTP client. Create payment intents, generate payment links, list transactions, and verify webhooks."
+---
+
+OwnPay provides a lightweight PHP integration path built on PHP 8.3's native HTTP capabilities — no Composer package required unless you prefer one. The examples below use a thin client class built on `file_get_contents` with stream contexts, keeping your dependency footprint minimal while giving you full access to the OwnPay REST API.
+
+## Prerequisites
+
+Before writing any code, confirm your environment meets these requirements:
+
+<CardGroup cols={2}>
+  <Card title="PHP 8.3+" icon="php">
+    Named arguments, typed properties, and `JSON_THROW_ON_ERROR` are used throughout. PHP 8.2 will also work with minor adjustments.
+  </Card>
+  <Card title="PHP Extensions" icon="gear">
+    Either `allow_url_fopen = On` in `php.ini` (for stream-based requests) **or** the `curl` extension enabled.
+  </Card>
+  <Card title="OwnPay API Key" icon="key">
+    Generate one in your OwnPay admin panel under **Admin → Developer Hub → API Keys**.
+  </Card>
+  <Card title="HTTPS Endpoint" icon="lock">
+    Your OwnPay instance must be accessible over HTTPS, and your webhook receiver must be a publicly reachable HTTPS URL.
+  </Card>
+</CardGroup>
+
+---
+
+## Environment Configuration
+
+Never hardcode credentials in source files. Use environment variables — either a `.env` file loaded by your framework or server-level config:
+
+```bash
+# .env — add to .gitignore immediately
+OWNPAY_BASE_URL=https://pay.your-domain.com
+OWNPAY_API_KEY=op_live_xxxxxxxxxxxxxxxxxxxxxxxx
+OWNPAY_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Access them in PHP via `getenv()` or `$_ENV`:
+
+```php
+$apiKey  = getenv('OWNPAY_API_KEY') ?: throw new RuntimeException('Missing OWNPAY_API_KEY');
+$baseUrl = getenv('OWNPAY_BASE_URL') ?: throw new RuntimeException('Missing OWNPAY_BASE_URL');
+```
+
+---
+
+## The API Client
+
+The following class handles authentication, JSON serialization, and error propagation for every request. Copy it into your project or adapt it to your framework's HTTP layer:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+class OwnPayClient
+{
+    private string $baseUrl;
+    private string $apiKey;
+
+    public function __construct(string $baseUrl, string $apiKey)
+    {
+        $this->baseUrl = rtrim($baseUrl, '/') . '/api/v1';
+        $this->apiKey  = $apiKey;
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     * @return array<string, mixed>
+     */
+    public function post(string $endpoint, array $body): array
+    {
+        return $this->request('POST', $endpoint, $body);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function get(string $endpoint): array
+    {
+        return $this->request('GET', $endpoint);
+    }
+
+    /**
+     * @param array<string, mixed>|null $body
+     * @return array<string, mixed>
+     */
+    private function request(string $method, string $endpoint, ?array $body = null): array
+    {
+        $url     = $this->baseUrl . '/' . ltrim($endpoint, '/');
+        $payload = $body !== null ? json_encode($body, JSON_THROW_ON_ERROR) : null;
+
+        $context = stream_context_create([
+            'http' => [
+                'method'        => $method,
+                'header'        => implode("\r\n", [
+                    'Content-Type: application/json',
+                    'Accept: application/json',
+                    'Authorization: Bearer ' . $this->apiKey,
+                ]),
+                'content'       => $payload,
+                'ignore_errors' => true,
+                'timeout'       => 15,
+            ],
+        ]);
+
+        $raw = file_get_contents($url, false, $context);
+
+        if ($raw === false) {
+            throw new RuntimeException("Request to {$url} failed");
+        }
+
+        /** @var array<string, mixed> $decoded */
+        $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+
+        if (!($decoded['success'] ?? false)) {
+            $msg = $decoded['message'] ?? 'Unknown API error';
+            throw new RuntimeException("OwnPay API error: {$msg}");
+        }
+
+        return $decoded;
+    }
+}
+```
+
+Instantiate it once and reuse it across your application:
+
+```php
+$client = new OwnPayClient(
+    baseUrl: $_ENV['OWNPAY_BASE_URL'],
+    apiKey:  $_ENV['OWNPAY_API_KEY'],
+);
+```
+
+---
+
+## Creating a Payment Intent
+
+A payment intent opens a checkout session for a specific amount and currency. After creation, redirect your customer to the returned `checkout_url` to complete payment.
+
+```php
+$response = $client->post('payment-intents', [
+    'amount'      => 1500,           // in minor units (1500 = $15.00 or BDT 1500)
+    'currency'    => 'BDT',
+    'description' => 'Order #1042',
+    'customer'    => [
+        'name'  => 'Rahim Uddin',
+        'email' => 'rahim@example.com',
+        'phone' => '+8801712345678',
+    ],
+    'metadata'    => [
+        'order_id' => '1042',
+    ],
+    'redirect_url' => 'https://your-store.com/payment/callback',
+    'cancel_url'   => 'https://your-store.com/payment/cancel',
+]);
+
+$checkoutUrl = $response['data']['checkout_url'];
+
+// Redirect the customer to OwnPay's hosted checkout
+header('Location: ' . $checkoutUrl, true, 302);
+exit;
+```
+
+### Request Fields
+
+| Field            | Type    | Required | Description                                        |
+|------------------|---------|----------|----------------------------------------------------|
+| `amount`         | integer | ✓        | Amount in minor currency units                     |
+| `currency`       | string  | ✓        | ISO 4217 code (e.g. `BDT`, `USD`)                  |
+| `description`    | string  |          | Human-readable description shown on the checkout   |
+| `customer.name`  | string  |          | Customer's full name                               |
+| `customer.email` | string  |          | Customer's email address                           |
+| `customer.phone` | string  |          | Customer's phone number                            |
+| `metadata`       | object  |          | Arbitrary key/value pairs — returned in webhooks   |
+| `redirect_url`   | string  | ✓        | URL to redirect after successful payment           |
+| `cancel_url`     | string  |          | URL to redirect if the customer cancels            |
+
+<Tip>
+Always store the `payment_id` from the response in your database before redirecting. You'll need it to verify payment status in your callback handler.
+</Tip>
+
+---
+
+## Retrieving a Payment Intent
+
+Fetch the current state of a payment intent after a callback redirect or upon receiving a webhook event. Never trust the query parameters in the callback URL alone — verify server-side:
+
+```php
+$intentId = filter_input(INPUT_GET, 'intent_id', FILTER_SANITIZE_SPECIAL_CHARS);
+
+$intent = $client->get('payment-intents/' . $intentId);
+$status = $intent['data']['status'];
+// Possible values: pending, processing, paid, failed, cancelled, refunded
+
+if ($status === 'paid') {
+    $orderId = $intent['data']['metadata']['order_id'];
+    fulfillOrder($orderId);
+}
+```
+
+---
+
+## Generating a Payment Link
+
+Payment links are reusable, shareable URLs that don't require customer data up front — ideal for invoices, donation pages, or product shares.
+
+```php
+$response = $client->post('payment-links', [
+    'amount'       => 5000,
+    'currency'     => 'BDT',
+    'description'  => 'Monthly subscription',
+    'expires_at'   => date('Y-m-d\TH:i:s\Z', strtotime('+7 days')),
+    'redirect_url' => 'https://your-store.com/payment/success',
+]);
+
+$link = $response['data']['url'];
+echo "Share this link: {$link}";
+```
+
+---
+
+## Listing Transactions
+
+Retrieve a paginated list of completed and pending transactions. Filter by `status`, `gateway`, or date range:
+
+```php
+$response = $client->get('transactions?page=1&per_page=20&status=paid');
+
+foreach ($response['data']['data'] as $tx) {
+    printf(
+        "%-36s  %-8s  %s %s\n",
+        $tx['id'],
+        $tx['status'],
+        $tx['amount'],
+        $tx['currency']
+    );
+}
+```
+
+Available `status` filters: `completed`, `pending`, `failed`, `cancelled`, `processing`.
+
+---
+
+## Webhook Verification
+
+OwnPay signs every webhook delivery with an HMAC-SHA256 signature in the `X-OwnPay-Signature` header. Always verify this before processing an event.
+
+The signature is computed as:
+
+```
+sha256=HMAC-SHA256(webhookSecret, timestamp + "." + rawRequestBody)
+```
+
+```php
+<?php
+
+declare(strict_types=1);
+
+function verifyOwnPaySignature(string $secret): array
+{
+    $signature = $_SERVER['HTTP_X_OWNPAY_SIGNATURE'] ?? '';
+    $timestamp  = $_SERVER['HTTP_X_OWNPAY_TIMESTAMP'] ?? '';
+    $rawBody    = file_get_contents('php://input') ?: '';
+
+    // Replay protection: reject events older than 5 minutes
+    if (abs(time() - (int) $timestamp) > 300) {
+        http_response_code(400);
+        exit('Timestamp too old');
+    }
+
+    $expected = 'sha256=' . hash_hmac('sha256', $timestamp . '.' . $rawBody, $secret);
+
+    if (!hash_equals($expected, $signature)) {
+        http_response_code(401);
+        exit('Invalid signature');
+    }
+
+    $event = json_decode($rawBody, true, 512, JSON_THROW_ON_ERROR);
+
+    if (!is_array($event)) {
+        http_response_code(400);
+        exit('Invalid JSON');
+    }
+
+    return $event;
+}
+
+// --- Your webhook endpoint ---
+$secret = getenv('OWNPAY_WEBHOOK_SECRET') ?: throw new RuntimeException('Missing OWNPAY_WEBHOOK_SECRET');
+$event  = verifyOwnPaySignature($secret);
+
+match ($event['event']) {
+    'payment.paid'     => handlePaymentPaid($event['data']),
+    'payment.failed'   => handlePaymentFailed($event['data']),
+    'payment.refunded' => handlePaymentRefunded($event['data']),
+    default            => null, // ignore unknown events safely
+};
+
+http_response_code(200);
+echo 'OK';
+```
+
+<Warning>
+Read the raw request body with `file_get_contents('php://input')` **before** any JSON decoding. Parsing the body first changes its byte representation, causing signature verification to fail.
+</Warning>
+
+---
+
+## Error Handling
+
+The client throws `RuntimeException` for any API failure (network errors, non-success responses) and `JsonException` for malformed responses. Wrap every API call in a `try/catch` block in production:
+
+```php
+try {
+    $response = $client->post('payment-intents', $payload);
+    // Handle success — redirect customer
+    header('Location: ' . $response['data']['checkout_url'], true, 302);
+    exit;
+} catch (RuntimeException $e) {
+    // Log the full error server-side
+    error_log('[OwnPay] ' . $e->getMessage());
+
+    // Return a user-friendly error to the client
+    http_response_code(502);
+    echo json_encode(['error' => 'Payment service temporarily unavailable']);
+    exit;
+} catch (JsonException $e) {
+    // Malformed response — likely a network or proxy issue
+    error_log('[OwnPay] JSON parse error: ' . $e->getMessage());
+    http_response_code(502);
+    exit;
+}
+```
+
+### HTTP Status Codes
+
+| Code | Meaning                                              |
+|------|------------------------------------------------------|
+| 200  | OK                                                   |
+| 201  | Created                                              |
+| 400  | Bad request or business rule violation               |
+| 401  | Missing or invalid API key                           |
+| 403  | Insufficient scope / permission                      |
+| 404  | Resource not found                                   |
+| 422  | Validation failure — check `errors` array            |
+| 500  | Server error                                         |
+
+---
+
+## Idempotent Webhook Handlers
+
+Webhook delivery is at-least-once. Your handler may receive the same event more than once. Guard against duplicate processing:
+
+```php
+function handlePaymentPaid(array $data): void
+{
+    $orderId = $data['metadata']['order_id'];
+
+    // Guard: skip if already fulfilled
+    $order = Order::find($orderId);
+    if ($order->status === 'fulfilled') {
+        return;
+    }
+
+    $order->fulfill();
+}
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Webhooks Guide" icon="webhook" href="/developer/webhooks">
+    Full webhook event reference, retry behavior, delivery logs, and best practices.
+  </Card>
+  <Card title="Node.js Integration" icon="node" href="/developer/integration/nodejs">
+    TypeScript/Node.js client with native fetch, type definitions, and Express webhook handler.
+  </Card>
+  <Card title="API Reference" icon="book" href="https://docs.ownpay.org">
+    Full interactive OpenAPI specification with all request/response schemas.
+  </Card>
+  <Card title="WooCommerce Plugin" icon="wordpress" href="/developer/integration/woocommerce">
+    Drop-in OwnPay gateway for WordPress WooCommerce without custom code.
+  </Card>
+</CardGroup>

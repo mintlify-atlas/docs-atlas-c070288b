@@ -1,0 +1,158 @@
+---
+title: "Payment Gateways in OwnPay"
+sidebarTitle: "Gateways"
+description: "How OwnPay gateway types, slugs, plugin architecture, test mode, brand scoping, and checkout ordering work for automated and manual payment methods."
+---
+
+A payment gateway in OwnPay is the integration layer between a brand's checkout page and an external payment processor or manual payment method. OwnPay supports two broad categories of gateways: automated plugin gateways (where payment authorization happens through a real-time API call to a processor like Stripe or PayPal) and manual gateways (where a human or an Android SMS device confirms that funds have been received). Both types integrate into the same checkout flow and the same payment lifecycle.
+
+## Gateway Types
+
+<CardGroup cols={2}>
+  <Card title="Automated Plugin Gateways" icon="bolt" href="/core-concepts/payment-flow">
+    Real-time API integrations with payment processors. The customer submits payment details on checkout, OwnPay calls the gateway API, and authorization is returned within seconds. Examples: Stripe, PayPal, Square, Razorpay.
+  </Card>
+  <Card title="Manual Gateways" icon="hand" href="/core-concepts/payment-flow">
+    Human-confirmed or SMS-confirmed payment methods. The customer initiates a transfer (e.g. bKash mobile money or bank transfer) and OwnPay waits for manual or automated confirmation before marking the payment complete.
+  </Card>
+  <Card title="SMS / Android Gateways" icon="mobile-screen" href="/getting-started/requirements">
+    A specialized manual gateway that pairs with an Android phone running the OwnPay companion app. The device listens for mobile-banking SMS alerts (bKash, Nagad, etc.) and automatically confirms matching payments.
+  </Card>
+  <Card title="Custom Plugin Gateways" icon="puzzle-piece" href="/core-concepts/brands-and-stores">
+    Gateways built as OwnPay plugins, allowing integration with any processor or payment method not included in the core system. Plugin gateways use the same interface as built-in gateways.
+  </Card>
+</CardGroup>
+
+## The Gateway Slug
+
+Every gateway in OwnPay has a **slug** — a unique string identifier that is used in API responses, payment records, webhook payloads, and plugin code. The slug identifies which gateway processed a transaction.
+
+Built-in gateway slugs include `stripe`, `paypal`, `square`, and `razorpay`. Custom plugin gateways define their own slug in the plugin manifest. Once a gateway has processed transactions, its slug should not be changed because it is embedded in historical payment records.
+
+The gateway slug appears in payment API responses:
+
+```json
+{
+  "id": "pay_a1b2c3d4",
+  "gateway": "stripe",
+  "gateway_transaction_id": "ch_3NkL4v2eZvKYlo2C1abc",
+  "status": "completed"
+}
+```
+
+## Gateway Scoping Per Brand
+
+Gateways are always scoped to a specific brand. A gateway configured for Brand A is not available on Brand B's checkout, even though both brands live on the same OwnPay installation. This enforces the data isolation guarantee of the multi-brand architecture.
+
+Practical implications:
+- A brand that serves customers in Bangladesh configures bKash; a brand serving US customers configures Stripe — neither gateway appears on the other brand's checkout.
+- Gateway credentials (API keys, merchant IDs) are stored per brand and are never shared across brands.
+- If you need the same payment processor on multiple brands, you add it separately to each brand with that brand's own credentials.
+
+## Test Mode vs. Live Mode
+
+Every gateway has an explicit **mode** flag: `test` or `live`.
+
+| Mode | Behavior |
+|------|---------|
+| **Test Mode** | Processes payments against the gateway's sandbox environment. No real funds are captured. Use this during development and QA. |
+| **Live Mode** | Processes real payments against the production gateway. Only switch to live mode after verifying end-to-end flow in test mode. |
+
+<Warning>
+  Switching a gateway from test mode to live mode on a brand that is already serving real customers takes effect immediately for all new payments. Verify your integration thoroughly in test mode — including webhook delivery, redirect handling, and failure scenarios — before going live.
+</Warning>
+
+When a gateway is in test mode, OwnPay adds a visual `[TEST]` indicator to the checkout page so that developers know they are in a sandbox environment. Test transactions are still recorded in the ledger and trigger webhooks, but they are tagged with a `test: true` flag in the API response.
+
+## Gateway Plugin Architecture
+
+OwnPay's gateway system is built on a plugin interface. Each gateway — whether built into OwnPay or added as a third-party plugin — implements the same set of methods:
+
+- `charge(amount, currency, paymentData)` — Initiates a payment attempt
+- `handleCallback(request)` — Processes the gateway's async callback
+- `refund(transactionId, amount)` — Issues a full or partial refund
+- `getStatus(transactionId)` — Queries the gateway for the current transaction status
+
+This interface means that from the checkout's perspective and from the payment lifecycle's perspective, all gateways behave identically. The differences are entirely in the plugin's implementation of these methods.
+
+Installing a third-party gateway plugin:
+1. Upload the plugin ZIP to **System → Plugins**
+2. Activate the plugin
+3. The gateway type becomes available in the **Add Gateway** dropdown on any brand
+
+## Gateway Ordering for Checkout Display
+
+When a brand has multiple gateways configured, the checkout page displays them in a defined order. You control this order from **Gateways → Manage Order** within the brand context.
+
+Gateway ordering affects user experience directly — the first gateway in the list is the default selection when the checkout page loads. Put your most commonly used payment method first to reduce friction for the majority of customers.
+
+<Tip>
+  If you have a high-conversion local payment method (such as bKash for a Bangladesh-focused brand), move it to the top of the gateway order even if a card gateway like Stripe is also configured. Customers who see their preferred method first complete payments at a higher rate.
+</Tip>
+
+## Adding and Configuring a Gateway
+
+<Steps>
+  <Step title="Select the Brand Context">
+    Use the brand switcher in the admin sidebar to ensure you are working within the correct brand. Gateway settings are brand-scoped.
+  </Step>
+  <Step title="Navigate to Gateways">
+    Go to **Gateways** in the sidebar and click **Add Gateway**.
+  </Step>
+  <Step title="Select Gateway Type">
+    Choose your payment provider from the dropdown. Plugin-installed gateways appear here alongside built-in ones.
+  </Step>
+  <Step title="Enter Credentials">
+    Fill in the provider-specific fields. At minimum, most gateways require an **API Key** (public identifier) and a **Secret Key** (private authentication token).
+
+    ```
+    API Key:     pk_live_51NkL4v...
+    Secret Key:  sk_live_51NkL4v...
+    ```
+
+    <Warning>
+      Secret keys must be kept private. Do not log them, expose them in client-side code, or commit them to version control.
+    </Warning>
+  </Step>
+  <Step title="Set Mode and Enable">
+    Set the gateway to **Test Mode** for initial verification. Select the currencies and payment methods you want to enable for this gateway. Click **Save**.
+  </Step>
+  <Step title="Verify with a Test Payment">
+    Create a payment link or use the API to initiate a test payment. Complete it using the gateway's sandbox test credentials. Confirm that the payment reaches `completed` status and that your webhook endpoint receives the `payment.completed` event.
+  </Step>
+  <Step title="Switch to Live Mode">
+    Once the end-to-end flow is verified, return to the gateway settings and switch from **Test Mode** to **Live Mode**.
+  </Step>
+</Steps>
+
+## Supported Built-In Gateways
+
+The following gateways ship with OwnPay and are available without installing additional plugins:
+
+<Tabs>
+  <Tab title="Global Processors">
+    | Gateway | Payment Methods | Region Focus |
+    |---------|----------------|--------------|
+    | **Stripe** | Cards, Apple Pay, Google Pay, SEPA | Global |
+    | **PayPal** | PayPal account, cards, Pay Later | Global |
+    | **Square** | Cards, Apple Pay, Cash App Pay | US, UK, AU, JP, CA |
+    | **2Checkout** | Cards, digital wallets, local methods | Global |
+    | **Razorpay** | Cards, UPI, wallets, netbanking | India focus |
+  </Tab>
+  <Tab title="Local & Mobile Money">
+    | Gateway | Payment Method | Region |
+    |---------|---------------|--------|
+    | **bKash** | Mobile money wallet | Bangladesh |
+    | **Nagad** | Mobile payment | Bangladesh |
+    | **GCash** | Mobile wallet | Philippines |
+    | **AliPay** | Digital wallet | China |
+    | **WeChat Pay** | Digital wallet | China |
+  </Tab>
+  <Tab title="Manual & SMS">
+    | Gateway | Type | How Confirmation Works |
+    |---------|------|----------------------|
+    | **Manual Bank Transfer** | Manual | Admin confirms receipt from bank statement |
+    | **Android SMS Gateway** | Automated manual | OwnPay companion app on Android parses SMS alerts and auto-confirms matching payments |
+    | **Cash on Delivery** | Manual | Admin or staff marks payment as received manually |
+  </Tab>
+</Tabs>

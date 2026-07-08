@@ -1,0 +1,194 @@
+---
+title: "Developer Hub: API Keys, Webhooks & Integration Tools"
+sidebarTitle: "Developer Hub"
+description: "Generate API keys, configure webhook endpoints with signing secrets, view delivery logs, and reference API endpoints for OwnPay integrations."
+---
+
+The Developer Hub consolidates every tool a developer needs to integrate OwnPay into external platforms — whether that is a WooCommerce store, a custom mobile app, or an internal backend service. From this single section you can generate authenticated API keys, configure outbound webhook endpoints for real-time payment notifications, review endpoint references, and manage API rate-limit thresholds. All communication with the OwnPay REST API is authenticated using Bearer tokens issued here.
+
+<Warning>
+  **API keys are shown only once at generation time.** After you leave or refresh the page, the full key string is permanently hidden and cannot be recovered. Copy and store every new key in a secure location (such as your server's `.env` file or a secrets manager) immediately after generation.
+</Warning>
+
+## Accessing the Developer Hub
+
+<Steps>
+  <Step title="Log in to the Admin Panel">
+    Sign in to the OwnPay admin dashboard with your administrator credentials.
+  </Step>
+  <Step title="Open Developer Hub">
+    In the left sidebar under the **DEVELOPERS** section, click **Developer Hub**.
+  </Step>
+</Steps>
+
+---
+
+## API Keys
+
+### Overview
+
+The **API Keys** tab lists all active keys associated with your account, showing each key's user-defined label, key prefix (e.g. `op_8ae87c48...`), creation date, and last-used timestamp.
+
+### Generating a New API Key
+
+<Steps>
+  <Step title="Open the API Keys Tab">
+    Navigate to **Developer Hub → API Keys**.
+  </Step>
+  <Step title="Enter a Key Label">
+    In the **Generate New API Key** form, type a descriptive **Key Label** that identifies where the key will be deployed (e.g. `WooCommerce Plugin`, `Production Server`, `Staging Backend`).
+  </Step>
+  <Step title="Generate the Key">
+    Click the **Generate Key** button.
+  </Step>
+  <Step title="Copy the Key Immediately">
+    The screen displays a **New API Key Generated** alert showing the full key string (e.g. `op_8ae87c48.aae2b54e89c755d768a9db81b820643d3da4257474735ebd`). Click **Copy Key** and paste it into your environment variable configuration right away.
+  </Step>
+</Steps>
+
+<Note>
+  After navigating away from the generation screen, only the key prefix (e.g. `op_8ae87c48...`) remains visible in the table — the full secret is never shown again. If a key is lost, revoke it and generate a replacement.
+</Note>
+
+### API Key Field Reference
+
+| Field | Type | Required | Example | Description |
+|---|---|---|---|---|
+| **Key Label** | Text | Yes | `WooCommerce Plugin` | Human-readable name for the deployment using this key. |
+| **Generate Key** | Button | Yes | — | Creates and displays the Bearer token credentials. |
+
+### Revoking an API Key
+
+<Steps>
+  <Step title="Locate the Key">
+    Find the target key by its label in the **API Keys** list table.
+  </Step>
+  <Step title="Click Revoke">
+    Click the **Revoke** button in the **Actions** column.
+  </Step>
+  <Step title="Confirm">
+    Confirm the revocation dialog. The key is instantly deactivated. Any API request using that token returns a **401 Unauthorized** error immediately.
+  </Step>
+</Steps>
+
+---
+
+## Using API Keys for Authentication
+
+All requests to the OwnPay REST API must include the key in the HTTP `Authorization` header:
+
+```http
+Authorization: Bearer op_<your-full-key>
+```
+
+Example `curl` request to create a payment intent:
+
+```bash
+curl -X POST https://pay.yourdomain.com/api/v1/payment-intents \
+  -H "Authorization: Bearer op_8ae87c48.aae2b54e89c755..." \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 2500, "currency": "BDT", "description": "Order #1042"}'
+```
+
+<Warning>
+  Never hardcode API keys in client-side JavaScript, public source code, or Git repositories. Always load keys from your server's `.env` configuration file or a secrets management service. Exposed keys grant full access to your OwnPay account's payment operations.
+</Warning>
+
+---
+
+## Webhooks / IPN
+
+The **Webhooks / IPN** tab manages outbound webhook endpoints. OwnPay sends HTTP POST requests to your configured URL when payment events occur, enabling your application to react in real time — for example, marking an order as paid in your e-commerce system when a `payment.completed` event fires.
+
+### Common Webhook Events
+
+| Event | Trigger |
+|---|---|
+| `payment.completed` | A transaction is verified as successfully paid. |
+| `payment.failed` | A gateway returns a failure or the customer aborts. |
+| `payment.pending` | A manual payment is submitted and awaiting staff verification. |
+| `refund.created` | A refund is initiated against a completed transaction. |
+
+### Webhook Signing Secret
+
+Every webhook endpoint is assigned a unique **signing secret**. OwnPay signs the outbound payload with an HMAC signature using this secret. Your server must verify the signature to confirm the webhook originates from OwnPay and has not been tampered with in transit.
+
+```php
+// Example HMAC signature verification (PHP)
+$signature = hash_hmac('sha256', $rawPayload, $webhookSecret);
+if (!hash_equals($signature, $incomingSignature)) {
+    http_response_code(401);
+    exit('Signature mismatch');
+}
+```
+
+<Warning>
+  Always verify the HMAC signature on your server before processing any webhook payload. Skipping this step exposes your system to webhook spoofing attacks where a malicious actor fabricates payment completion events.
+</Warning>
+
+### Viewing Delivery Logs
+
+The webhook delivery log shows the status of every outbound notification attempt — including the HTTP response code returned by your server, the timestamp, and whether a retry was queued for failed deliveries. Use this log to diagnose connectivity issues between OwnPay and your webhook receiver.
+
+---
+
+## Endpoint Reference
+
+The **Endpoint Reference** tab lists the key REST API paths exposed by the platform:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/v1/payment-intents` | `POST` | Create a new payment intent and receive a checkout token. |
+| `/api/v1/transactions` | `GET` | List transactions for the authenticated brand. |
+| `/api/v1/transactions/{id}` | `GET` | Retrieve details for a single transaction. |
+| `/api/v1/transactions/{id}/refund` | `POST` | Initiate a refund against a completed transaction. |
+
+For brands using custom domains, replace the base URL with `https://{your_brand_domain}/api/v1`.
+
+---
+
+## Rate Limits
+
+The **Rate Limits** tab defines threshold constraints on the number of API requests permitted per minute. Adjusting these values prevents API abuse and protects system stability under high-volume integration traffic.
+
+<Note>
+  Rate limiting is enforced by `RateLimiterMiddleware`. Requests that exceed the configured threshold receive a **429 Too Many Requests** response. Build retry logic with exponential backoff into your integration to handle rate-limit responses gracefully.
+</Note>
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="One Key per Environment" icon="key">
+    Generate separate API keys for staging and production environments. This makes key rotation straightforward and ensures a compromised staging key cannot affect production traffic.
+  </Card>
+  <Card title="Copy Keys Before Leaving the Page" icon="clipboard">
+    The full API key is displayed only at generation. Copy it to your environment configuration before navigating away — there is no recovery mechanism other than revoking and regenerating.
+  </Card>
+  <Card title="Verify Webhook Signatures" icon="shield-check">
+    Every webhook handler in your integration must verify the HMAC signature. Processing unverified webhooks enables spoofing attacks that could incorrectly mark orders as paid.
+  </Card>
+  <Card title="Never Commit Keys to Version Control" icon="code-branch">
+    Store API keys exclusively in server-side environment variables or a dedicated secrets manager. A key committed to a Git repository should be considered compromised and revoked immediately.
+  </Card>
+</CardGroup>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="System Settings" icon="gear" href="/user-guide/system/settings">
+    Configure global server timezone and application settings.
+  </Card>
+  <Card title="Payment Gateways" icon="credit-card" href="/user-guide/gateways/gateways">
+    Configure manual and API gateway credentials for checkout flows.
+  </Card>
+  <Card title="Audit Log" icon="list-check" href="/user-guide/reports-finance/audit-log">
+    Monitor all security-relevant administrative access and API activity.
+  </Card>
+  <Card title="Public Checkout" icon="cart-shopping" href="/user-guide/public/checkout">
+    Understand the customer-facing payment flow your API integrations initiate.
+  </Card>
+</CardGroup>

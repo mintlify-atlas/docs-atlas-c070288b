@@ -1,0 +1,449 @@
+---
+title: "Integrate OwnPay with JavaScript and TypeScript"
+sidebarTitle: "JavaScript"
+description: "Complete guide to calling the OwnPay REST API from JavaScript and TypeScript — Node.js server-side, browser usage, payments, and webhooks."
+---
+
+OwnPay's REST API works equally well from Node.js server-side code and from browser-based applications. This guide covers both environments: building a typed TypeScript client for backend use, creating payment intents, verifying outcomes, handling webhooks in Express, and issuing refunds. Browser-specific considerations — such as keeping API keys out of client-side code — are addressed separately.
+
+<Warning>
+**Never expose your API key in browser-side JavaScript.** All requests to the OwnPay API that require authentication must be made from your server. Use the browser only to redirect customers to the `checkout_url` returned by your backend.
+</Warning>
+
+---
+
+## Node.js Setup
+
+Store your credentials as environment variables:
+
+```bash
+export OWNPAY_API_KEY="op.xxxxxxxxxxxxx"
+export OWNPAY_BASE_URL="https://pay.yourbrand.com/api/v1"
+```
+
+No extra packages are required — Node.js 18+ ships with the Fetch API. For older Node.js versions, install `node-fetch`:
+
+```bash
+npm install node-fetch   # only for Node.js < 18
+```
+
+---
+
+## TypeScript Client
+
+<Tabs>
+  <Tab title="TypeScript">
+```typescript
+// ownpay-client.ts
+
+export interface CreatePaymentRequest {
+  amount: string;
+  currency: string;
+  callback_url?: string;
+  redirect_url?: string;
+  cancel_url?: string;
+  customer_email?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  reference?: string;
+  gateway?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PaymentIntent {
+  payment_id: string;
+  token: string;
+  checkout_url: string;
+  status: string;
+}
+
+export interface Transaction {
+  id: number;
+  trx_id: string;
+  gateway_trx_id: string;
+  amount: string;
+  currency: string;
+  fee: string;
+  net_amount?: string;
+  status: string;
+  gateway: string;
+  method: string;
+  reference: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface Refund {
+  id: number;
+  uuid: string;
+  transaction_id: number;
+  trx_id: string;
+  gateway_trx_id: string;
+  amount: string;
+  reason: string;
+  status: string;
+  processed_at: string;
+  created_at: string;
+}
+
+export class OwnPayError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    message: string,
+    public readonly errors: Array<{ code: string; message: string; field: string }> = [],
+    public readonly requestId: string = ''
+  ) {
+    super(`[${statusCode}] ${message} (request_id=${requestId})`);
+    this.name = 'OwnPayError';
+  }
+}
+
+export class OwnPayClient {
+  private readonly baseUrl: string;
+  private readonly apiKey: string;
+
+  constructor(
+    baseUrl = process.env.OWNPAY_BASE_URL!,
+    apiKey  = process.env.OWNPAY_API_KEY!
+  ) {
+    this.baseUrl = baseUrl;
+    this.apiKey  = apiKey;
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown
+  ): Promise<T> {
+    const resp = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization:  `Bearer ${this.apiKey}`,
+        Accept:         'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+
+    const json = await resp.json();
+
+    if (!resp.ok) {
+      throw new OwnPayError(
+        resp.status,
+        json.error ?? `HTTP ${resp.status}`,
+        json.errors ?? [],
+        json.request_id ?? ''
+      );
+    }
+
+    return json.data as T;
+  }
+
+  async health() {
+    return this.request<Record<string, unknown>>('GET', '/health');
+  }
+
+  async createPayment(req: CreatePaymentRequest): Promise<PaymentIntent> {
+    return this.request<PaymentIntent>('POST', '/payments', req);
+  }
+
+  async getPayment(paymentId: string): Promise<Transaction> {
+    return this.request<Transaction>('GET', `/payments/${paymentId}`);
+  }
+
+  async listTransactions(params?: {
+    page?: number;
+    per_page?: number;
+    status?: string;
+    gateway?: string;
+    from?: string;
+    to?: string;
+  }): Promise<Transaction[]> {
+    const qs = new URLSearchParams(
+      Object.entries(params ?? {})
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    ).toString();
+    return this.request<Transaction[]>('GET', `/transactions${qs ? `?${qs}` : ''}`);
+  }
+
+  async getTransaction(trxId: string): Promise<Transaction> {
+    return this.request<Transaction>('GET', `/transactions/${trxId}`);
+  }
+
+  async createRefund(req: {
+    trx_id: string;
+    amount?: string;
+    reason?: string;
+  }): Promise<Refund> {
+    return this.request<Refund>('POST', '/refunds', req);
+  }
+
+  async createCustomer(req: {
+    name: string;
+    email?: string;
+    phone?: string;
+  }): Promise<{ id: number; uuid: string }> {
+    return this.request('POST', '/customers', req);
+  }
+
+  async getCustomer(identifier: string) {
+    const encoded = encodeURIComponent(identifier);
+    return this.request('GET', `/customers/${encoded}`);
+  }
+}
+```
+  </Tab>
+  <Tab title="JavaScript (ESM)">
+```javascript
+// ownpay-client.js
+
+export class OwnPayError extends Error {
+  constructor(statusCode, message, errors = [], requestId = '') {
+    super(`[${statusCode}] ${message} (request_id=${requestId})`);
+    this.name       = 'OwnPayError';
+    this.statusCode = statusCode;
+    this.errors     = errors;
+    this.requestId  = requestId;
+  }
+}
+
+export class OwnPayClient {
+  constructor(
+    baseUrl = process.env.OWNPAY_BASE_URL,
+    apiKey  = process.env.OWNPAY_API_KEY
+  ) {
+    this.baseUrl = baseUrl;
+    this.apiKey  = apiKey;
+  }
+
+  async #request(method, path, body) {
+    const resp = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization:  `Bearer ${this.apiKey}`,
+        Accept:         'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+
+    const json = await resp.json();
+
+    if (!resp.ok) {
+      throw new OwnPayError(
+        resp.status,
+        json.error ?? `HTTP ${resp.status}`,
+        json.errors ?? [],
+        json.request_id ?? ''
+      );
+    }
+    return json.data;
+  }
+
+  health()                            { return this.#request('GET',  '/health'); }
+  createPayment(req)                  { return this.#request('POST', '/payments', req); }
+  getPayment(paymentId)               { return this.#request('GET',  `/payments/${paymentId}`); }
+  getTransaction(trxId)               { return this.#request('GET',  `/transactions/${trxId}`); }
+  createRefund(req)                   { return this.#request('POST', '/refunds', req); }
+  createCustomer(req)                 { return this.#request('POST', '/customers', req); }
+  getCustomer(id)                     { return this.#request('GET',  `/customers/${encodeURIComponent(id)}`); }
+}
+```
+  </Tab>
+</Tabs>
+
+---
+
+## Creating a Payment Intent
+
+```typescript
+import { OwnPayClient } from './ownpay-client';
+
+const client = new OwnPayClient();
+
+const intent = await client.createPayment({
+  amount:         '500.00',
+  currency:       'BDT',
+  reference:      'INV-10029',
+  callback_url:   'https://my-store.com/webhooks/ownpay',
+  redirect_url:   'https://my-store.com/checkout/success',
+  cancel_url:     'https://my-store.com/checkout/cancel',
+  customer_email: 'customer@example.com',
+  customer_name:  'John Doe',
+  metadata:       { store_id: 'dhaka-branch' },
+});
+
+console.log('Payment ID  :', intent.payment_id);
+console.log('Checkout URL:', intent.checkout_url);
+
+// In an Express handler:
+// res.redirect(intent.checkout_url);
+```
+
+---
+
+## Verifying a Payment (Express)
+
+```typescript
+import express from 'express';
+
+const app    = express();
+const client = new OwnPayClient();
+
+app.get('/checkout/return', async (req, res) => {
+  const paymentId = req.session?.paymentId as string;
+
+  if (!paymentId) {
+    return res.status(400).send('No payment in session');
+  }
+
+  try {
+    const payment = await client.getPayment(paymentId);
+
+    if (payment.status !== 'completed') {
+      return res.status(400).send(`Payment not completed: ${payment.status}`);
+    }
+
+    // Safe to fulfil the order
+    console.log(`Order confirmed: ${payment.trx_id}`);
+    return res.redirect('/order/success');
+  } catch (err) {
+    console.error('Payment verification failed:', err);
+    return res.status(500).send('Verification error');
+  }
+});
+```
+
+<Warning>
+Always call `getPayment` or `getTransaction` from your server to verify the outcome. Query parameters on `redirect_url` are user-controlled and cannot be trusted.
+</Warning>
+
+---
+
+## Handling Webhooks (Express)
+
+```typescript
+import express from 'express';
+
+const app    = express();
+const client = new OwnPayClient();
+
+app.post('/webhooks/ownpay', express.json(), async (req, res) => {
+  const { event, data } = req.body;
+
+  if (event !== 'payment.completed') {
+    return res.status(400).json({ ok: false, reason: 'unrecognised event' });
+  }
+
+  try {
+    // Re-verify — never act on the webhook payload alone
+    const transaction = await client.getTransaction(data.trx_id);
+
+    if (transaction.status !== 'completed') {
+      return res.status(400).json({ ok: false, reason: 'not completed' });
+    }
+
+    console.log(`Fulfilling order: ${transaction.reference}`);
+    // await fulfillOrder(transaction.reference);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Webhook processing error:', err);
+    return res.status(500).json({ ok: false });
+  }
+});
+```
+
+<Tip>
+Acknowledge OwnPay's webhook within **10 seconds** by responding `200` immediately. For slow operations (database writes, sending emails), enqueue a background job and confirm receipt right away.
+</Tip>
+
+---
+
+## Listing Transactions
+
+```typescript
+const transactions = await client.listTransactions({
+  status:   'completed',
+  from:     '2026-06-01',
+  to:       '2026-06-30',
+  per_page: 50,
+});
+
+for (const txn of transactions) {
+  console.log(`${txn.trx_id}  ${txn.amount} ${txn.currency}  ${txn.status}`);
+}
+```
+
+---
+
+## Issuing a Refund
+
+```typescript
+const refund = await client.createRefund({
+  trx_id: 'OP-481029304',
+  amount: '150.00',
+  reason: 'Customer requested return',
+});
+
+console.log(`Refund ${refund.uuid} — status: ${refund.status}`);
+```
+
+---
+
+## Error Handling
+
+```typescript
+import { OwnPayClient, OwnPayError } from './ownpay-client';
+
+try {
+  await client.createPayment({ amount: '-1', currency: 'BDT' });
+} catch (err) {
+  if (err instanceof OwnPayError) {
+    console.error(`API error ${err.statusCode}: ${err.message}`);
+    for (const fe of err.errors) {
+      console.error(`  Field '${fe.field}': ${fe.message}`);
+    }
+  } else {
+    throw err; // Re-throw unexpected network errors
+  }
+}
+```
+
+<Accordion title="OwnPay HTTP error codes and JavaScript handling strategy">
+| Status | Meaning | Action |
+|--------|---------|--------|
+| `400` | Business rule violation | Show message to operator |
+| `401` | Invalid API key | Check `OWNPAY_API_KEY` env var |
+| `403` | Insufficient scope | Re-generate key with correct scopes |
+| `404` | Resource not found | Validate IDs before requesting |
+| `409` | Duplicate customer email | Look up existing customer instead |
+| `422` | Validation failure | Inspect `errors` array for field details |
+| `503` | System degraded | Retry with exponential back-off |
+</Accordion>
+
+---
+
+## Browser Integration Notes
+
+In a browser context you should **never** call OwnPay API endpoints directly from the page. Instead:
+
+1. Your frontend calls **your own backend** (e.g. `POST /api/create-checkout`).
+2. Your backend calls `POST /payments` using the secret API key.
+3. Your backend returns the `checkout_url` to the browser.
+4. Your frontend redirects the user: `window.location.href = checkoutUrl`.
+
+```javascript
+// Frontend JavaScript — no API key involved
+async function startCheckout(orderData) {
+  const resp = await fetch('/api/create-checkout', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(orderData),
+  });
+
+  const { checkoutUrl } = await resp.json();
+  window.location.href = checkoutUrl; // Redirect to OwnPay hosted checkout
+}
+```

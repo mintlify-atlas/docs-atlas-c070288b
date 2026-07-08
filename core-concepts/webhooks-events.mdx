@@ -1,0 +1,260 @@
+---
+title: "Webhooks and Events Architecture in OwnPay"
+sidebarTitle: "Webhooks & Events"
+description: "How OwnPay dispatches HMAC-signed webhook events, retry schedules, delivery logs, signature verification, and the payment.completed payload structure."
+---
+
+Webhooks are how OwnPay notifies your application of payment events in real time. Rather than polling the API on an interval to check whether a payment has changed status, you register a URL and OwnPay delivers a signed HTTP POST to that URL as soon as the event occurs. This event-driven architecture reduces latency, eliminates unnecessary API calls, and enables your application to react to payment completions, failures, and refunds the moment they happen.
+
+## How OwnPay Delivers Webhooks
+
+When a payment event occurs — for example, a gateway confirms a successful payment — OwnPay:
+
+1. Constructs a JSON payload describing the event
+2. Signs the payload with HMAC-SHA256 using the webhook secret for that brand
+3. Places the signed request in the delivery queue
+4. Dispatches an HTTP POST to your registered `callback_url` within the same request cycle (or immediately after, via the background queue)
+
+Your endpoint must respond with an HTTP `2xx` status code within **10 seconds**. If it does not, OwnPay considers the delivery failed and schedules a retry.
+
+<Warning>
+  Do not perform slow operations (database writes, email sending, external API calls) inline in your webhook handler. Respond with `200 OK` immediately after signature verification, then process the event asynchronously in a background job or queue worker. Slow handlers that miss the 10-second window will trigger unnecessary retries.
+</Warning>
+
+## Automatic Retry Schedule
+
+If your endpoint fails to respond with `2xx` within 10 seconds, or returns a `4xx` / `5xx` status, OwnPay retries delivery on the following schedule:
+
+| Attempt | Delay After Previous Failure |
+|---------|------------------------------|
+| Retry 1 | 1 minute |
+| Retry 2 | 5 minutes |
+| Retry 3 | 30 minutes |
+| Retry 4 | 2 hours |
+| Retry 5 | 12 hours |
+
+After 5 failed retries, the delivery is marked as permanently failed. You can manually re-trigger delivery from the webhook delivery logs. Transient server issues, deployments, or network blips during the initial delivery are covered by this retry window without any data loss.
+
+## HMAC-SHA256 Signature
+
+Every webhook request includes an `X-OwnPay-Signature` header containing an HMAC-SHA256 signature of the request body, keyed with your brand's webhook secret. Verify this signature on every incoming webhook request before processing the payload — this prevents replay attacks and ensures the request genuinely originated from your OwnPay installation.
+
+### Signature Verification
+
+The signature is computed as:
+
+```
+HMAC-SHA256(secret, "{timestamp}.{raw_request_body}")
+```
+
+Where `{timestamp}` is the Unix timestamp from the `X-OwnPay-Timestamp` header and `{raw_request_body}` is the unparsed JSON string of the request body.
+
+<CodeGroup>
+```php PHP
+$signature  = $_SERVER['HTTP_X_OWNPAY_SIGNATURE'] ?? '';
+$timestamp  = $_SERVER['HTTP_X_OWNPAY_TIMESTAMP'] ?? '';
+$rawBody    = file_get_contents('php://input');
+$secret     = getenv('OWNPAY_WEBHOOK_SECRET');
+
+$expected = hash_hmac('sha256', "{$timestamp}.{$rawBody}", $secret);
+
+if (!hash_equals($expected, $signature)) {
+    http_response_code(401);
+    exit('Invalid signature');
+}
+
+// Signature verified — safe to process
+$event = json_decode($rawBody, true);
+http_response_code(200);
+// Queue async processing here
+```
+
+```javascript Node.js
+const crypto = require('crypto');
+
+app.post('/webhooks/ownpay', express.raw({ type: 'application/json' }), (req, res) => {
+  const signature = req.headers['x-ownpay-signature'];
+  const timestamp = req.headers['x-ownpay-timestamp'];
+  const rawBody   = req.body.toString();
+  const secret    = process.env.OWNPAY_WEBHOOK_SECRET;
+
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex');
+
+  if (expected !== signature) {
+    return res.status(401).send('Invalid signature');
+  }
+
+  // Signature verified — respond immediately
+  res.status(200).json({ received: true });
+
+  // Process asynchronously
+  const event = JSON.parse(rawBody);
+  processEvent(event);
+});
+```
+
+```python Python
+import hmac
+import hashlib
+import os
+from flask import Flask, request, abort
+
+app = Flask(__name__)
+
+@app.route('/webhooks/ownpay', methods=['POST'])
+def webhook():
+    signature = request.headers.get('X-OwnPay-Signature', '')
+    timestamp  = request.headers.get('X-OwnPay-Timestamp', '')
+    raw_body   = request.get_data(as_text=True)
+    secret     = os.environ['OWNPAY_WEBHOOK_SECRET'].encode()
+
+    expected = hmac.new(
+        secret,
+        f'{timestamp}.{raw_body}'.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        abort(401, 'Invalid signature')
+
+    # Respond immediately, process async
+    event = request.get_json()
+    queue_event(event)
+    return '', 200
+```
+</CodeGroup>
+
+<Note>
+  Always use a constant-time comparison function (`hash_equals` in PHP, `crypto.timingSafeEqual` in Node.js, `hmac.compare_digest` in Python) when comparing signatures. Standard string equality checks are vulnerable to timing attacks.
+</Note>
+
+## The payment.completed Event Payload
+
+The `payment.completed` event is the most commonly handled webhook event. It fires when a gateway has confirmed successful authorization and OwnPay has recorded the transaction in the ledger.
+
+```json
+{
+  "type": "payment.completed",
+  "id": "evt_z9y8x7w6v5u4t3s2",
+  "created_at": "2024-06-15T14:22:31Z",
+  "data": {
+    "id": "pay_a1b2c3d4e5f6",
+    "amount": 4999,
+    "currency": "USD",
+    "status": "completed",
+    "description": "Order #1042 — 1x Premium Plan",
+    "customer_email": "jane@example.com",
+    "customer_name": "Jane Smith",
+    "gateway": "stripe",
+    "gateway_transaction_id": "ch_3NkL4v2eZvKYlo2C1abc",
+    "brand_id": "brand_xyz123",
+    "test": false,
+    "metadata": {
+      "order_id": "1042",
+      "plan": "premium"
+    },
+    "paid_at": "2024-06-15T14:22:29Z",
+    "created_at": "2024-06-15T14:20:11Z"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Event type identifier (e.g. `payment.completed`) |
+| `id` | string | Unique event ID — use this for idempotent processing |
+| `created_at` | ISO 8601 | When the event was generated |
+| `data.id` | string | The OwnPay payment ID |
+| `data.amount` | integer | Amount in the smallest currency unit (cents, paisa, etc.) |
+| `data.currency` | string | ISO 4217 currency code |
+| `data.status` | string | Payment status at time of event |
+| `data.gateway` | string | Gateway slug that processed the payment |
+| `data.gateway_transaction_id` | string | The processor's own transaction reference |
+| `data.test` | boolean | `true` if the gateway was in test mode |
+| `data.metadata` | object | Custom key-value pairs from the original payment intent |
+| `data.paid_at` | ISO 8601 | Timestamp of gateway authorization |
+
+## All Event Types
+
+<AccordionGroup>
+  <Accordion title="Payment Events" icon="credit-card">
+    | Event | Fired When |
+    |-------|-----------|
+    | `payment.created` | A new payment intent is created |
+    | `payment.pending` | The customer opens the checkout page |
+    | `payment.processing` | The customer submits payment details |
+    | `payment.completed` | Gateway confirms successful authorization |
+    | `payment.failed` | Gateway declines the payment |
+    | `payment.cancelled` | Payment is explicitly cancelled before completion |
+    | `payment.refunded` | A completed payment is reversed by a refund |
+    | `payment.disputed` | A chargeback is initiated by the customer's bank |
+  </Accordion>
+  <Accordion title="Customer Events" icon="user">
+    | Event | Fired When |
+    |-------|-----------|
+    | `customer.created` | A new customer record is created |
+    | `customer.updated` | A customer's details are modified |
+    | `customer.deleted` | A customer record is removed |
+  </Accordion>
+  <Accordion title="Gateway Events" icon="plug">
+    | Event | Fired When |
+    |-------|-----------|
+    | `gateway.added` | A new gateway is configured on a brand |
+    | `gateway.updated` | A gateway's settings are modified |
+    | `gateway.removed` | A gateway is deleted from a brand |
+  </Accordion>
+</AccordionGroup>
+
+## Configuring Webhooks
+
+Webhooks are configured at the brand level. Navigate to **Developers → Webhooks** within a brand context and register your endpoint URL.
+
+<Steps>
+  <Step title="Add a Webhook Endpoint">
+    Go to **Developers → Webhooks** and click **Add Endpoint**. Enter your HTTPS URL — webhook endpoints must be publicly accessible and must use HTTPS. Plain HTTP endpoints are not accepted.
+  </Step>
+  <Step title="Copy the Webhook Secret">
+    After saving, OwnPay displays the webhook secret for this endpoint. Copy it immediately and store it as an environment variable in your application (`OWNPAY_WEBHOOK_SECRET`). It is not shown again after you navigate away.
+  </Step>
+  <Step title="Select Events to Subscribe To">
+    By default, all events are delivered to your endpoint. You can filter to specific event types to reduce noise in your handler.
+  </Step>
+  <Step title="Test the Endpoint">
+    Click **Send Test Event** (or use `POST /webhooks/tests` via the API) to dispatch a sample `payment.completed` payload to your endpoint. Check your server logs to confirm the signature verification passes and the payload is received correctly.
+  </Step>
+</Steps>
+
+## Delivery Logs
+
+OwnPay maintains a full delivery log for every webhook dispatch. To view it:
+
+- **Admin panel:** Go to **Developers → Webhooks → Delivery Log**
+- **API:** `GET /webhooks/deliveries`
+
+Each log entry shows the event type, the HTTP status code returned by your server, the response body, the delivery timestamp, and whether retries are pending. Failed deliveries that have not yet exhausted all retries show as `pending_retry`.
+
+To manually re-trigger a failed delivery:
+
+- **Admin panel:** Click **Retry** on the failed delivery row
+- **API:** `POST /webhooks/tests` with the original event ID
+
+## Testing Webhooks Locally
+
+During development your webhook endpoint is typically running on `localhost`, which is not reachable from the internet. Use a tunneling tool to expose it temporarily:
+
+```bash
+# Using ngrok
+ngrok http 3000
+
+# Your local endpoint is now reachable at:
+# https://abc123.ngrok-free.app/webhooks/ownpay
+```
+
+Register the ngrok URL in OwnPay's webhook settings, make a test payment in the sandbox, and inspect the request in ngrok's inspector dashboard at `http://localhost:4040`.
+
+<Tip>
+  Always test your webhook handler against the full retry schedule before going live. Send a test event, intentionally return a non-2xx status from your endpoint, and confirm that OwnPay retries on the expected schedule and that your idempotency logic prevents duplicate processing when the retried delivery succeeds.
+</Tip>

@@ -1,20 +1,85 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "OwnPay: Self-Hosted Payment Gateway Platform"
+sidebarTitle: "Home"
+description: "OwnPay is an open-source, self-hosted payment gateway. Run multi-brand payment processing on your own server with full data sovereignty."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+OwnPay is a self-hosted, open-source payment gateway platform that puts you in complete control of payment processing. Deploy it on your own infrastructure, manage multiple merchant brands from one installation, and integrate via a clean REST API — no third-party intermediaries, no per-transaction SaaS fees.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="rocket" href="/getting-started/introduction">
+    Install OwnPay, meet system requirements, and complete your first payment in minutes.
+  </Card>
+  <Card title="Developer Quickstart" icon="code" href="/developer/quickstart">
+    Generate API keys, create a payment intent, and handle webhooks in 5 minutes.
+  </Card>
+  <Card title="REST API Reference" icon="rectangle-terminal" href="/resources/integrations/rest-api">
+    Full endpoint reference: payments, transactions, refunds, customers, and API keys.
+  </Card>
+  <Card title="Plugin System" icon="puzzle-piece" href="/developer/plugins/overview">
+    Extend OwnPay with gateway, addon, and theme plugins without modifying core code.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## What is OwnPay?
+
+OwnPay is infrastructure you deploy and own. Unlike SaaS payment processors, OwnPay runs entirely on your server — you control the database, credentials, and transaction ledger. A single installation supports multiple isolated merchant brands, each with their own customers, gateways, checkout domains, and staff.
+
+<CardGroup cols={3}>
+  <Card title="Multi-Brand" icon="store">
+    Run multiple white-labeled merchant stores from one platform, each fully isolated.
+  </Card>
+  <Card title="Double-Entry Ledger" icon="book">
+    Every transaction is recorded with double-entry bookkeeping for guaranteed financial integrity.
+  </Card>
+  <Card title="Plugin Extensible" icon="puzzle-piece">
+    Add payment gateways, features, and themes through a structured plugin architecture.
+  </Card>
+  <Card title="API-First" icon="webhook">
+    REST API with scoped Bearer keys, webhook delivery logs, and HMAC signature verification.
+  </Card>
+  <Card title="Mobile SMS Gateway" icon="mobile">
+    Pair Android phones to auto-parse local mobile banking SMS alerts (bKash, Nagad, etc.).
+  </Card>
+  <Card title="RBAC Permissions" icon="lock">
+    Role-based access control for staff across all brands with granular permission scopes.
+  </Card>
+</CardGroup>
+
+## Choose Your Path
+
+<Steps>
+  <Step title="Install OwnPay">
+    Review [system requirements](/getting-started/requirements) and follow the [installation guide](/getting-started/installation) to deploy on your server.
+  </Step>
+  <Step title="Configure Your First Brand">
+    Log in as administrator, create a [brand](/user-guide/people/brands), and add a [payment gateway](/user-guide/gateways/gateways).
+  </Step>
+  <Step title="Integrate via API">
+    Generate an [API key](/user-guide/developers/developer-hub) and follow the [developer quickstart](/developer/quickstart) to create your first payment intent.
+  </Step>
+  <Step title="Go Live">
+    Set up [webhooks](/developer/webhooks) for payment notifications, configure [custom domains](/user-guide/system/domains), and enable [two-factor auth](/user-guide/auth/two-factor) for your team.
+  </Step>
+</Steps>
+
+## Explore the Documentation
+
+<CardGroup cols={2}>
+  <Card title="User Guide" icon="user" href="/user-guide/auth/login">
+    Administrator guide covering payments, gateways, brands, staff, reports, and system settings.
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/core-concepts/brands-and-stores">
+    Understand the architecture: multi-brand scoping, payment flow, roles, and webhooks.
+  </Card>
+  <Card title="SDK Integrations" icon="brackets-curly" href="/developer/integration/php">
+    PHP and Node.js SDKs, WooCommerce plugin, and language-specific integration guides.
+  </Card>
+  <Card title="Resources" icon="book-open" href="/resources/architecture">
+    Architecture overview, feature list, glossary, contributing guide, and roadmap.
+  </Card>
+</CardGroup>
+
+<Note>
+  OwnPay is licensed under AGPL-3.0. Source code and issue tracker are on [GitHub](https://github.com/own-pay/OwnPay). Interactive API documentation is available at [docs.ownpay.org](https://docs.ownpay.org).
+</Note>

@@ -1,0 +1,190 @@
+---
+title: "Custom Domains: White-Label Checkout URLs for Brands"
+sidebarTitle: "Custom Domains"
+description: "Map custom hostnames to OwnPay brands, configure DNS A records and TXT verification, and enable white-labeled checkout experiences."
+---
+
+The Custom Domains panel lets you assign your own hostnames — such as `pay.yourbusiness.com` — to any brand running under your OwnPay instance. Once a domain is verified and active, customers see only your brand's domain throughout the entire checkout journey, with no trace of the underlying OwnPay platform URL. Each brand maps to exactly one custom domain, and each domain maps to exactly one brand.
+
+<Info>
+  Custom domains are customer-facing only. Administrative routes (e.g. `/admin/*`) accessed via a custom domain return an immediate **404 Not Found** error. The admin panel is strictly accessible via the master `APP_DOMAIN`.
+</Info>
+
+## Accessing Custom Domains
+
+<Steps>
+  <Step title="Log in as Super-Administrator">
+    Sign in to the OwnPay admin dashboard with your super-administrator credentials.
+  </Step>
+  <Step title="Open Domains">
+    In the left sidebar under the **SYSTEM** section, click **Domains**.
+  </Step>
+</Steps>
+
+---
+
+## Domain Status Indicators
+
+Once added, every domain in the table displays one of three status badges:
+
+<CardGroup cols={2}>
+  <Card title="✓ Verified" icon="circle-check">
+    DNS records are correctly configured and propagated. The domain is live and routing customer payments under the mapped brand.
+  </Card>
+  <Card title="Pending DNS" icon="clock">
+    The domain was added to OwnPay but DNS records have not yet propagated or been verified. Customer traffic will not route until verification succeeds.
+  </Card>
+  <Card title="Error / Invalid" icon="circle-exclamation">
+    The DNS verification check failed. Either the TXT or A record is misconfigured, or the records were removed after initial verification.
+  </Card>
+  <Card title="Automated Recheck" icon="rotate">
+    OwnPay's background job (`DnsVerificationJob`) rechecks all pending domains every 6 hours automatically, so you do not need to manually verify repeatedly.
+  </Card>
+</CardGroup>
+
+---
+
+## Adding and Verifying a Custom Domain
+
+### Step 1 — Register the Domain in OwnPay
+
+<Steps>
+  <Step title="Open the Add Domain Modal">
+    Click the **+ Add Domain** button in the top-right corner of the Domains page.
+  </Step>
+  <Step title="Enter the Hostname">
+    Type your hostname in the **Domain Name** field (e.g. `pay.mybrand.com`). Do not include `https://` or any path prefix.
+  </Step>
+  <Step title="Submit">
+    Click **Add Domain**. The domain appears in the table with a `Pending DNS` badge and a unique TXT verification token.
+  </Step>
+</Steps>
+
+### Step 2 — Configure the TXT Verification Record
+
+Log in to your DNS registrar (Cloudflare, GoDaddy, Namecheap, or your provider) and add a new **TXT** record:
+
+| DNS Field | Value |
+|---|---|
+| **Type** | `TXT` |
+| **Name / Host** | `_ownpay-verify` |
+| **Value** | `ownpay-verify={your-verification-token}` |
+| **TTL** | `3600` (1 hour) |
+
+<Warning>
+  Some DNS providers automatically append your root domain to the host field. If you enter `_ownpay-verify.pay.mybrand.com`, the provider may produce `_ownpay-verify.pay.mybrand.com.pay.mybrand.com`. Enter only `_ownpay-verify` in the host input field to avoid this duplication. Verify the exact value using a DNS lookup tool after saving.
+</Warning>
+
+### Step 3 — Configure the A Record (Traffic Routing)
+
+Add a second record to point traffic to your OwnPay server:
+
+| DNS Field | Value |
+|---|---|
+| **Type** | `A` |
+| **Name / Host** | `pay` (or `@` for an apex/root domain) |
+| **Points to** | Your OwnPay server IP address (shown in the DNS Setup Guide on the Domains page) |
+| **TTL** | `3600` |
+
+### Step 4 — Verify and Activate
+
+<Steps>
+  <Step title="Wait for Propagation">
+    DNS records typically propagate in 5–60 minutes. Use a tool such as `dnschecker.org` to confirm global propagation before clicking Verify in OwnPay.
+  </Step>
+  <Step title="Trigger Verification">
+    Return to **SYSTEM → Domains**, locate your domain in the table, and click **Verify DNS** in the actions column.
+  </Step>
+  <Step title="Confirmation">
+    If records match, the status badge updates to `✓ Verified`. The domain is now live and all customer-facing URLs for that brand will use your custom hostname.
+  </Step>
+</Steps>
+
+---
+
+## API Base URL Per Brand
+
+Once a custom domain is verified, the brand's REST API base URL changes to reflect the custom hostname:
+
+```
+https://{your_brand_domain}/api/v1
+```
+
+For example, a brand with the domain `pay.mybrand.com` exposes its API at:
+
+```
+https://pay.mybrand.com/api/v1/payment-intents
+https://pay.mybrand.com/api/v1/transactions
+```
+
+---
+
+## SSL / TLS Configuration
+
+OwnPay does not manage SSL certificate provisioning automatically. Your server's reverse proxy configuration (Nginx, Apache, Caddy, or Laragon) must handle SSL termination for each custom domain you add.
+
+<Note>
+  After adding a new custom domain, contact your server administrator or update your Nginx/Caddy configuration to include the new hostname in your SSL certificate's Subject Alternative Names (SANs). Most modern setups using Let's Encrypt with Certbot or Caddy's automatic HTTPS can add domains with a single configuration line and certificate renewal is handled automatically.
+</Note>
+
+---
+
+## Cloudflare-Specific Notes
+
+<Accordion title="Disable the Cloudflare proxy for TXT verification">
+  When adding the TXT verification record in Cloudflare, ensure the proxy status is set to **DNS only** (gray cloud icon). The orange-cloud proxied mode can intercept and block TXT record validation queries, causing verification to fail permanently.
+</Accordion>
+
+<Accordion title="A record proxy behavior">
+  You may enable the Cloudflare proxy (orange cloud) on the A record after the TXT verification succeeds. Proxying the A record routes traffic through Cloudflare's CDN and applies DDoS protection. Ensure your OwnPay server's firewall allows inbound traffic from Cloudflare IP ranges if you enable proxying.
+</Accordion>
+
+---
+
+## Troubleshooting
+
+<Accordion title="Domain status stays 'Pending DNS' after clicking Verify">
+  **DNS propagation delays** are the most common cause. Global DNS propagation can take up to 1 hour. Wait and try again, or check propagation status on `dnschecker.org` before retrying.
+
+  If propagation is confirmed but verification still fails, double-check the **Name/Host** field in your TXT record. Some registrars auto-append the root domain — use a DNS lookup tool to view the exact stored record value.
+</Accordion>
+
+<Accordion title="Custom domain returns a 404 page">
+  This indicates the A record is not pointing to the correct server IP, or the domain has not yet been verified. Confirm the A record IP matches the server IP shown in OwnPay's DNS Setup Guide, then run verification from the admin panel.
+</Accordion>
+
+<Accordion title="Admin panel is inaccessible via the custom domain">
+  This is expected behavior by design. Administrative routes (`/admin/*`) are blocked on custom domains and return a 404. Access the admin panel only via the master `APP_DOMAIN`.
+</Accordion>
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Subdomains" icon="sitemap">
+    Use a subdomain like `pay.yourdomain.com` rather than the apex domain for easier DNS and CDN administration. Apex domains have restrictions with CNAME records that can complicate multi-service setups.
+  </Card>
+  <Card title="One Domain per Brand" icon="link">
+    Domain-to-brand mapping is strictly 1:1. Never attempt to map the same domain to multiple brands — the routing middleware assigns a single `merchant_id` per hostname.
+  </Card>
+</CardGroup>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Brands" icon="building" href="/user-guide/people/brands">
+    Create and manage the brands that custom domains are mapped to.
+  </Card>
+  <Card title="Branding Settings" icon="palette" href="/user-guide/appearance/branding-settings">
+    Upload logos and configure visual identity for each brand context.
+  </Card>
+  <Card title="System Settings" icon="gear" href="/user-guide/system/settings">
+    Set the global application name and master base URL.
+  </Card>
+  <Card title="Public Checkout" icon="cart-shopping" href="/user-guide/public/checkout">
+    Understand how customers experience the white-labeled checkout flow.
+  </Card>
+</CardGroup>

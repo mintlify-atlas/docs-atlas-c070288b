@@ -1,0 +1,192 @@
+---
+title: "Public Checkout: The Customer Payment Experience"
+sidebarTitle: "Public Checkout"
+description: "Understand the white-labeled customer checkout flow — gateway selection, payment forms, manual payments, status pages, and success/cancel redirects."
+---
+
+The public checkout is the customer-facing heart of OwnPay. When a payment intent is created via the API or a payment link is shared, customers land on a fully white-labeled checkout interface that reflects the active brand's logo, colors, and custom domain — with no visible trace of the underlying OwnPay platform. The checkout is optimized for both desktop and mobile layouts, minimizing friction at every step from gateway selection through to payment confirmation.
+
+<Info>
+  Checkout pages are protected by HMAC verification (`checkout_hash`) computed using `APP_KEY`. This cryptographic check prevents customers from altering checkout amounts or currencies in transit. All checkout templates also carry `noindex, nofollow` meta tags to block search engine indexing for privacy.
+</Info>
+
+## How Customers Reach the Checkout
+
+Customers arrive at the checkout interface through two routes:
+
+<CardGroup cols={2}>
+  <Card title="API Checkout Redirect" icon="arrow-right-to-bracket">
+    An external platform (e.g. WooCommerce, a custom app) creates a payment intent via `/api/v1/payment-intents`. OwnPay returns a checkout token URL (`/checkout/{token}`) and the customer is redirected there to complete payment.
+  </Card>
+  <Card title="Public Payment Links" icon="link">
+    A shareable payment link URL (`/pay/{slug}`) generated in the admin panel. Customers visit the link directly, optionally enter a variable amount, and proceed to checkout.
+  </Card>
+</CardGroup>
+
+---
+
+## Checkout Page Layout
+
+On desktop, the checkout renders as a two-panel layout. On mobile, the panels stack vertically for a single-scroll flow.
+
+### Left Panel — Order Summary
+
+The left panel gives the customer a clear, tamper-evident record of what they are paying for:
+
+- **Brand Logo & Name** — the active brand's uploaded logo and display name
+- **Payment Reference** — the unique Transaction ID (e.g. `OP-D7B7D1B822`) and purchase description
+- **Line Items Breakdown** — for invoice-based payments, each line item with quantity and unit price
+- **Total Summary** — the final amount and currency (e.g. `BDT 2,500.00`)
+
+### Right Panel — Payment Terminal
+
+The right panel is the interactive payment interface:
+
+- **Brand Support Link** — links to the brand's configured support email address
+- **Session Timer** — a countdown showing remaining time to complete the transaction (default: 10 minutes) before the session expires
+- **Express Checkout Area** — quick-pay buttons for one-click authorization where configured (e.g. bKash Express, Nagad Quick Pay, Apple Pay)
+- **Payment Method Tabs** — gateway categories such as Mobile Banking, Credit/Debit Cards, Internet Banking, and Manual
+- **Gateway Selection Grid** — logos for each available payment provider; selecting one redirects to the processor or launches manual instructions
+
+---
+
+## Customer Payment Flows
+
+### Flow A — Variable-Amount Payment Link
+
+<Steps>
+  <Step title="Customer Visits the Payment Link">
+    The customer opens a shared URL such as `https://pay.mybrand.com/pay/donation`.
+  </Step>
+  <Step title="Amount Entry Screen">
+    Because the link has a variable amount, the customer sees an **Enter Amount** page showing the link title and description. Any minimum or maximum bounds configured by the merchant are enforced automatically.
+  </Step>
+  <Step title="Proceed to Checkout">
+    The customer enters their amount and clicks **Continue to Payment**, which redirects to the active transaction checkout room.
+  </Step>
+</Steps>
+
+### Flow B — Standard API Checkout
+
+<Steps>
+  <Step title="Customer Reviews Order">
+    The customer arrives at `/checkout/{token}` and reviews the order details in the left panel.
+  </Step>
+  <Step title="Select Payment Method">
+    In the right panel, the customer selects a payment method tab (e.g. **Cards**) and clicks their preferred gateway logo (e.g. Visa/Mastercard via Stripe).
+  </Step>
+  <Step title="Gateway Redirect">
+    OwnPay securely redirects the customer to the gateway's payment processing page (e.g. Stripe Checkout, SSLCommerz) to input card details or authorize the payment.
+  </Step>
+  <Step title="Return to OwnPay">
+    After processing, the gateway redirects the customer back to the OwnPay checkout status page with the transaction result.
+  </Step>
+</Steps>
+
+### Flow C — Manual Payment
+
+<Steps>
+  <Step title="Select Manual Payment">
+    The customer clicks the **Manual Payment** tab and selects a specific manual gateway (e.g. `bKash Manual` or `Bank Transfer`).
+  </Step>
+  <Step title="Follow Payment Instructions">
+    The page displays the brand's step-by-step instructions (e.g. *"Send money to bKash Personal 017XXXXXXXX"*). The customer completes the transfer on their banking app or mobile wallet.
+  </Step>
+  <Step title="Submit Confirmation Details">
+    The customer returns to the checkout page and inputs:
+    - **Sender Account** — the phone number or bank account from which they sent the payment
+    - **Transaction ID (TrxID)** — the reference code received from the payment network
+  </Step>
+  <Step title="Pending Verification">
+    After submitting, the transaction status updates to `Pending Verification`. Brand staff must verify the payment in the admin panel before the order is completed.
+  </Step>
+</Steps>
+
+---
+
+## Checkout Status Pages
+
+After payment processing, customers are routed to one of four status screens:
+
+| Status Screen | Color | Description | Customer Action |
+|---|---|---|---|
+| **Success** | Green | Payment verified by the gateway or manually approved by staff. Displays the brand's custom success message and receipt details. | Click **Return to Merchant** or download the invoice PDF. |
+| **Pending Verification** | Yellow | Manual payment submitted; awaiting staff validation in the admin panel. | Customer may close the page; an email invoice is sent upon approval. |
+| **Failed** | Red | Payment declined, failed, or aborted by the gateway. Displays the brand's custom failure message. | Click **Try Again** to return to the gateway selection grid. |
+| **Expired** | Gray | Session timer elapsed before payment was detected, or the payment link has been disabled. | Customer must request a new payment link from the merchant. |
+
+---
+
+## Brand White-Labeling on Checkout Pages
+
+Every element of the checkout interface is white-labeled to the active brand:
+
+<Accordion title="Custom domain">
+  When a custom domain is verified, the checkout URL changes from the master OwnPay domain to `https://{your_brand_domain}/checkout/{token}`. Customers see only the brand's hostname throughout their session.
+</Accordion>
+
+<Accordion title="Logo and brand colors">
+  The brand's uploaded logo is displayed in the left panel and the right panel header. The brand's primary color is applied to buttons, active tab borders, and progress indicators via CSS custom properties. The accent color is applied to highlights and secondary UI elements.
+</Accordion>
+
+<Accordion title="Custom CSS and JavaScript">
+  Per-brand custom CSS entered in the brand's settings is injected via the `checkout.head` filter hook, enabling pixel-level visual customization. Custom JavaScript is injected via the `checkout.footer` hook for analytics or tracking integrations.
+</Accordion>
+
+<Accordion title="Support email and footer">
+  The brand's configured `support_email` is displayed as a contact link in the payment terminal header. The `footer_text` value appears at the bottom of the checkout page, supporting custom legal or brand copy.
+</Accordion>
+
+---
+
+## Security & Anti-Tampering
+
+<CardGroup cols={2}>
+  <Card title="HMAC Checkout Verification" icon="shield-check">
+    Every checkout session is signed with an HMAC hash using `APP_KEY`. Any attempt to modify the amount, currency, or transaction data in transit causes the signature to fail and the checkout to be rejected.
+  </Card>
+  <Card title="Session Expiry" icon="clock">
+    Checkout sessions expire after the configured timer (default 10 minutes). This limits the window for link-sharing attacks and prevents sessions from remaining open indefinitely.
+  </Card>
+  <Card title="No Card Data Stored Locally" icon="credit-card">
+    OwnPay never stores credit card numbers or bank passwords on the platform server. All card forms are handled entirely by the gateway provider via tokenization or offsite redirects, maintaining PCI-DSS compliance.
+  </Card>
+  <Card title="Search Engine Blocking" icon="eye-slash">
+    All checkout pages include `noindex, nofollow` meta tags to prevent search engines from indexing transaction-specific pages, protecting customer privacy and avoiding exposure of payment URLs.
+  </Card>
+</CardGroup>
+
+---
+
+## Troubleshooting
+
+<Accordion title="Checkout shows 'HMAC_KEY or APP_KEY must be configured'">
+  The platform is missing a required signing key. Ensure `APP_KEY` is set in the main `.env` configuration file and that the installer wizard has been completed. Contact your server administrator if the key is missing after installation.
+</Accordion>
+
+<Accordion title="Session timer expires instantly on load">
+  The server time is out of sync with the platform's configured timezone. Verify that the server is synchronized to an NTP time source and that the timezone in **SYSTEM → Settings** matches the server's actual timezone.
+</Accordion>
+
+<Accordion title="Gateway redirect fails or returns an error page">
+  Confirm that the selected gateway plugin is active in the Plugins manager and that valid API credentials have been entered in the Payment Gateways configuration. Also check that the `APP_URL` or brand's custom domain is correctly set so OwnPay can construct valid callback return URLs for the gateway.
+</Accordion>
+
+---
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Transactions" icon="list-check" href="/user-guide/payments/transactions">
+    View and audit all customer payment statuses from the admin panel.
+  </Card>
+  <Card title="Payment Links" icon="link" href="/user-guide/payments/payment-links">
+    Configure slugs, amounts, and expiry settings for shareable payment links.
+  </Card>
+  <Card title="Themes" icon="paintbrush" href="/user-guide/appearance/themes">
+    Manage the visual template that renders the checkout interface.
+  </Card>
+  <Card title="Custom Domains" icon="globe" href="/user-guide/system/domains">
+    Set up white-label custom domains for fully branded checkout URLs.
+  </Card>
+</CardGroup>

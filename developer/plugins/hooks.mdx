@@ -1,0 +1,381 @@
+---
+title: "OwnPay Plugin Hooks: Filters and Actions Reference"
+sidebarTitle: "Hooks"
+description: "Complete reference for OwnPay's 60+ action and filter hooks — registration API, priority ordering, and domain-grouped hook catalogue with PHP examples."
+---
+
+Hooks are the primary integration surface of OwnPay's plugin system. They let your plugin modify data flowing through the core (filter hooks) and react to events that happen inside it (action hooks) without changing any core file. Every hook in OwnPay is fired by `EventManager`, which handles error isolation, brand-context scoping, and priority ordering.
+
+## Hook Types
+
+<CardGroup cols={2}>
+  <Card title="Action Hooks" icon="bolt">
+    Fire-and-forget. The core fires an action at a defined point; any listener registered on that hook runs. The return value is discarded. Use actions to send notifications, write logs, update external systems, or enqueue background jobs.
+  </Card>
+  <Card title="Filter Hooks" icon="filter">
+    Pipeline mutation. Each listener receives the current value, may transform it, and must return it. After all listeners run, the final value is returned to the caller. Use filters to modify data before it is saved or sent, override templates, or augment context arrays.
+  </Card>
+</CardGroup>
+
+## Registration API
+
+All hook interaction happens through the `EventManager` instance injected into `PluginInterface::register()`. **Never instantiate `EventManager` directly.**
+
+### `addAction()` — Register an Action Hook
+
+```php
+$events->addAction(string $hook, callable $callback, int $priority = 10): void
+```
+
+```php
+public function register(EventManager $events, Container $container): void
+{
+    $events->addAction('payment.transaction.completed', [$this, 'onPaymentCompleted'], priority: 10);
+}
+
+public function onPaymentCompleted(array $txn): void
+{
+    // $txn contains all columns from op_transactions
+    // Send SMS, dispatch webhook, etc.
+}
+```
+
+### `addFilter()` — Register a Filter Hook
+
+```php
+$events->addFilter(string $hook, callable $callback, int $priority = 10): void
+```
+
+The first argument to the callback is always the value being filtered. The callback **must** return a value of the same type it received.
+
+```php
+$events->addFilter('payment.fee.calculate', function (string $fee, array $context): string {
+    // Waive the fee for transactions over 50,000 BDT
+    if (bccomp($context['amount'] ?? '0', '50000.00', 2) >= 0) {
+        return '0.00';
+    }
+    return $fee;
+}, priority: 5); // lower priority number = runs earlier
+```
+
+### `removeAction()` / `removeFilter()` — Deregister a Callback
+
+```php
+$removed = $events->removeAction('payment.transaction.completed', [$this, 'onPaymentCompleted']);
+$removed = $events->removeFilter('payment.fee.calculate', $myCallback);
+// Returns true if found and removed
+```
+
+### Inspection and Debugging
+
+```php
+// Check if any listener is registered
+$events->hasAction('payment.transaction.completed'); // bool
+$events->hasFilter('payment.fee.calculate');          // bool
+$events->hasHook('checkout.head');                    // bool (action or filter)
+
+// Count how many times a hook has fired this request
+$events->getFireCount('payment.transaction.completed'); // int
+
+// Identify which plugin is currently executing
+$events->getActiveOwner(); // string — plugin slug or 'core'
+
+// Get all registered hooks and listener counts
+$events->getRegisteredHooks();
+// ['payment.transaction.completed' => ['actions' => 3, 'filters' => 0], ...]
+
+// Inspect listeners on a specific hook
+$events->inspectHook('payment.transaction.completed');
+// [['callable' => ..., 'priority' => 10, 'owner' => 'my-plugin'], ...]
+```
+
+## Priority and Ordering
+
+Listeners run in ascending priority order. A listener with priority `5` runs before one with priority `10`. Multiple listeners at the same priority run in registration order.
+
+```php
+// This runs first (priority 5)
+$events->addFilter('payment.amount.calculate', $earlyModifier, priority: 5);
+
+// This runs second (priority 10, the default)
+$events->addFilter('payment.amount.calculate', $defaultModifier);
+
+// This runs last (priority 20)
+$events->addFilter('payment.amount.calculate', $lateAudit, priority: 20);
+```
+
+<Warning>
+  All hook registrations **must** happen inside `register()`, not `boot()` or the constructor. Registrations outside `register()` are not attributed to your plugin slug and bypass brand-context activation checks — meaning they may fire even when your plugin is disabled.
+</Warning>
+
+## Execution Model and Error Isolation
+
+Every listener invocation is wrapped in a `try/catch(Throwable)`. If a plugin listener throws any exception, `EventManager`:
+
+1. Logs the error: `[OwnPay] Hook error in "{hook}" (owner: {slug}): {message} in {file}:{line}`.
+2. Continues to the next listener without crashing.
+
+A plugin failure will **never** crash a critical transaction flow.
+
+**Exception**: If a listener modifies the `db.query.before` filter and the resulting SQL fails `PluginSandbox::validateSql()`, a `RuntimeException` is **re-thrown** and halts the request. This is intentional — a plugin attempting to access core tables must be stopped.
+
+## Hook Catalogue
+
+The following is the complete hook registry from `config/hooks.php`. Hooks are verified against every call site in the codebase.
+
+### System Lifecycle
+
+| Hook | Type | Source | Description |
+|---|---|---|---|
+| `system.boot` | Action | `Kernel` | Fired on every request after the DI container boots, before middleware. |
+| `system.shutdown` | Action | `Kernel` | Fired after the response is transmitted. Flush caches, close cursors. |
+| `system.request` | Filter | `Kernel` | Filter the inbound `Request` object. Return a `Request`. Rewrite paths or enforce rate limits. |
+| `system.response` | Filter | `Kernel` | Filter the outbound `Response` before it is sent. Parameters: `Response, Request`. |
+| `system.middleware.pipeline` | Filter | `Kernel` | Filter the global middleware class array. Append custom firewall middleware. |
+| `system.route.matched` | Action | `Router` | Fired when a route is resolved. |
+| `system.routes.register` | Action | `Router` | Fired when all routes are registered. Add dynamic routes here. |
+| `system.cron.before` | Action | `CronJobRunner` | Fired before cron execution starts. |
+| `system.cron.after` | Action | `CronJobRunner` | Fired after cron execution completes. |
+
+### Database
+
+| Hook | Type | Description |
+|---|---|---|
+| `db.query.before` | Filter | Filter `['sql' => string, 'params' => array]` before PDO execution. **Security**: plugin-modified SQL is validated by `PluginSandbox::validateSql()`. Blocked queries throw a re-thrown `RuntimeException`. |
+| `db.query.after` | Action | Fired after a query executes. Useful for query logging. |
+
+### Authentication & Session
+
+| Hook | Type | Parameters | Description |
+|---|---|---|---|
+| `auth.login.before` | Filter | `bool $allowed, string $email, string $ip` | Return `false` to block the login before credentials are validated. |
+| `auth.login.attempt` | Action | `string $email, string $ip` | Fired when a login is attempted. |
+| `auth.login.success` | Action | `array $user, string $ip` | Fired on successful login. Dispatch security notifications or reset brute-force counters. |
+| `auth.login.failed` | Action | `string $email, string $ip` | Fired on credential mismatch. Trigger account lockout logic. |
+| `auth.logout` | Action | `int $userId` | Fired when a session is terminated. |
+| `auth.forgot_password` | Action | — | Fired when a password reset is requested. |
+
+**Example — Block a login from a specific IP:**
+
+```php
+$events->addFilter('auth.login.before', function (bool $allowed, string $email, string $ip): bool {
+    $blocklist = ['192.168.1.100', '10.0.0.55'];
+    if (in_array($ip, $blocklist, true)) {
+        return false;
+    }
+    return $allowed;
+});
+```
+
+### Payment & Transactions
+
+| Hook | Type | Parameters | Description |
+|---|---|---|---|
+| `payment.transaction.before_create` | Filter | `array $data, int $merchantId` | Modify column map before `op_transactions` insert. |
+| `payment.transaction.created` | Action | `array $transaction` | Fired when a transaction enters `pending` status. |
+| `payment.transaction.completed` | Action | `array $transaction` | Fired on successful payment. Primary hook for SMS, email, webhooks, order fulfilment. |
+| `payment.transaction.failed` | Action | `array $transaction` | Fired on decline or timeout. |
+| `payment.transaction.cancelled` | Action | `array $transaction` | Fired when the buyer cancels checkout. |
+| `payment.amount.calculate` | Filter | `string $amount, array $context` | Filter currency and rounding before processor payload. Must return a BCMath-safe string — never cast to `float`. |
+| `payment.fee.calculate` | Filter | `string $fee, array $context` | Apply custom tiered fee rules. Context includes `amount`, `currency`, `merchant_id`, `gateway_slug`. |
+| `payment.intent.created` | Action | `array $intent` | Fired when a checkout intent session is generated. |
+| `payment.intent.expired` | Action | `array $intent` | Fired when checkout intents time out. |
+| `refund.created` | Action | — | Fired when a refund is initiated. |
+| `transaction.status.changed` | Action | — | Fired when a transaction status changes. |
+| `ledger.entry.created` | Action | `array $entry` | Fired after a balanced double-entry journal is committed. Do **not** post additional ledger entries from inside this hook. |
+| `dispute.opened` | Action | `array $dispute` | Fired when a chargeback registers. Place merchant balance on hold. |
+| `dispute.resolved` | Action | `array $dispute` | Fired when dispute resolves. Release or debit funds. |
+| `payment.refund.reconciliation_failed` | Action | — | Fired when a refund reconciliation job encounters an error. |
+
+**Example — Add a fee surcharge:**
+
+```php
+$events->addFilter('payment.amount.calculate', function (string $amount, array $context): string {
+    // Add a $1.00 surcharge to all transactions
+    return bcadd($amount, '1.00', 2);
+}, priority: 10);
+```
+
+### Gateway & Checkout
+
+| Hook | Type | Parameters | Description |
+|---|---|---|---|
+| `gateway.capture.before` | Filter | `array $params, string $gatewaySlug, int $merchantId` | Filter transaction params sent to gateway adapters. Return shape must preserve `amount`, `currency`, `trx_id`, `redirect_url`, `cancel_url`. |
+| `gateway.capture.after` | Action | `string $slug, array $result` | Fired after `initiate()`. Log the payment attempt. |
+| `gateway.webhook.{slug}` | Action | `WebhookPayload $payload` | Dynamic hook fired after webhook signature verification. `{slug}` is the gateway slug (e.g., `gateway.webhook.stripe`). |
+| `gateway.manual.render` | Filter | `string $html, array $gateway` | Filter manual payment gateway HTML markup. |
+| `gateway.manual.verify` | Filter | `array $result, array $gateway, array $submittedData` | Filter manual slip verification results. |
+| `checkout.before` | Action | `array $transaction` | Fired before checkout template is parsed. |
+| `checkout.render` | Filter | `array $data` | Filter Twig context before checkout renders. |
+| `checkout.template` | Filter | `string $templatePath` | Override the checkout template path. |
+| `checkout.status.template` | Filter | `string $templatePath` | Override the result page template path. |
+| `checkout.payment_link.template` | Filter | `string $templatePath` | Override the payment link page template path. |
+| `checkout.intent.render` | Filter | `array $data` | Filter variables before payment intent screen. |
+| `checkout.gateway.selected` | Action | `array $transaction, string $gateway` | Fired when the buyer selects a gateway. |
+| `checkout.cancelled` | Action | — | Fired when checkout is cancelled. |
+| `checkout.manual_verify.submitted` | Action | `array $transaction, array $proof` | Fired when a manual receipt slip is submitted. |
+| `checkout.head` | Action | None | Inject CSS/fonts into the checkout `<head>`. |
+| `checkout.footer` | Action | None | Inject JS/tracking scripts into checkout footer. |
+| `checkout.csp.sources` | Filter | `array $sources` | Append gateway domains to CSP. Keys: `script_src`, `style_src`, `frame_src`, `connect_src`, `font_src`, `img_src`. |
+
+### Admin Panel
+
+| Hook | Type | Description |
+|---|---|---|
+| `admin.head` | Action | Inject CSS/JS into the admin `<head>`. |
+| `admin.footer` | Action | Inject scripts into the admin `</body>`. |
+| `admin.menu.register` | Action | Echo HTML link tags to inject sidebar navigation entries. |
+| `admin.dashboard.before` | Action | Fired before the dashboard body renders. |
+| `admin.dashboard.bottom` | Action | Fired at the bottom of the dashboard. Inject widget HTML. |
+| `admin.dashboard.stats` | Filter | `array $stats` — Inject custom metrics into dashboard stat cards. |
+| `admin.page.before_render` | Filter | `array $data, string $templatePath` — Augment Twig context before any admin page renders. |
+| `admin.page.after_render` | Filter | `string $html, string $templatePath` — Modify final rendered HTML before transmission. |
+| `admin.template.resolve` | Filter | `string $template, array $data` — Override admin templates (advanced). |
+| `admin.template.data` | Filter | `array $data, string $template` — Filter admin page context variables. |
+| `admin.settings.tabs` | Action | Echo an HTML `<li>` tab trigger to add a custom settings tab. |
+| `admin.settings.general` | Action | Inject form fields into the General settings tab. |
+| `admin.settings.branding` | Action | Inject form fields into the Branding tab. |
+| `admin.settings.payment` | Action | Inject form fields into the Payment tab. |
+| `admin.settings.email` | Action | Inject form fields into the Email tab. |
+| `settings.saved` | Action | Fired when settings are saved. Clear plugin caches here. |
+
+**Example — Inject a dashboard metric:**
+
+```php
+$events->addFilter('admin.dashboard.stats', function (array $stats): array {
+    $stats['emails_sent_today'] = $this->countEmailsToday();
+    return $stats;
+});
+```
+
+### Communication & Messaging
+
+| Hook | Type | Parameters | Description |
+|---|---|---|---|
+| `communication.sms.send` | Action | `int $merchantId, string $recipientNumber, array $deliveryResult` | Fired after outbound SMS delivery. |
+| `communication.mail.send` | Action | `int $merchantId, array $messagePayload, array $deliveryResult` | Fired after outbound email delivery. |
+| `communication.channels` | Filter | `array $channels` | Register custom channels (Telegram, Slack, push). Return the modified channels array. |
+| `communication.template.render` | Filter | `string $html, array $variables` | Intercept SMS/email template compilation before delivery. |
+| `mfs.templates` | Filter | `array $templates` | Add custom regex schemas for MFS SMS parsing. |
+
+### Customers & Invoices
+
+| Hook | Type | Description |
+|---|---|---|
+| `customer.created` | Action | Fired when a customer is created in `CustomerPiiService`. |
+| `customer.updated` | Action | Fired when customer data is updated. |
+| `customer.deleted` | Action | Fired when a customer is deleted (PII purge). |
+| `invoice.created` | Action | Fired when an invoice is created. |
+| `invoice.updated` | Action | Fired when an invoice is updated. |
+| `payment_link.created` | Action | Fired when a payment link is created. |
+| `payment_link.updated` | Action | Fired when a payment link is updated. |
+
+### Mobile & SMS
+
+| Hook | Type | Description |
+|---|---|---|
+| `mobile.device.paired` | Action | Fired when a mobile app pairs with a brand. |
+| `mobile.device.revoked` | Action | Fired when a device's API access is revoked. |
+| `sms.received.before` | Action | Fired when an inbound SMS arrives. |
+| `sms.received.after` | Action | Fired after inbound SMS processing completes. |
+| `mobile.sms.matched` | Action | Fired when an SMS matches a transaction pattern. |
+
+### Webhook Delivery
+
+| Hook | Type | Description |
+|---|---|---|
+| `webhook.delivery.success` | Action | Fired when an outbound merchant IPN completes successfully. |
+| `webhook.delivery.failed` | Action | Fired when outbound IPN delivery fails or reaches retry limits. |
+| `domain.mapped` | Action | Fired when a white-label custom domain is linked. |
+| `domain.verified` | Action | Fired when a custom domain passes DNS verification. |
+| `domain.removed` | Action | Fired when a custom domain mapping is deleted. |
+| `domain.resolve` | Filter | Filter resolved domain mapping details. |
+
+### Reporting & Export
+
+| Hook | Type | Parameters | Description |
+|---|---|---|---|
+| `report.data` | Filter | `array $reportData, array $queryParams` | Filter financial grid data before rendering. |
+| `export.row` | Filter | `array $row` | Transform or redact individual CSV/export rows. |
+| `audit.log.created` | Action | `array $entry` | Fired when an admin audit log entry is created. |
+
+### Plugin Lifecycle
+
+| Hook | Type | Parameters | Description |
+|---|---|---|---|
+| `plugin.before_install` | Action | `string $zipPath` | Fired before a plugin ZIP is extracted. |
+| `plugin.installed` | Action | `string $slug, array $manifest` | Fired after successful installation. |
+| `plugin.before_activate` | Action | `string $slug, int $brandId` | Fired before activation and migrations. |
+| `plugin.activated` | Action | `string $slug, int $migrationsCount, int $brandId` | Fired after activation completes. |
+| `plugin.before_deactivate` | Action | `string $slug, int $brandId` | Fired before the plugin is suspended. |
+| `plugin.deactivated` | Action | `string $slug, int $brandId` | Flush caches here. Do **not** drop tables. |
+| `plugin.before_uninstall` | Action | `string $slug` | Fired before plugin files are deleted. |
+| `plugin.uninstalled` | Action | `string $slug` | Fired after deletion and settings purge. |
+| `plugin.settings.saved` | Action | — | Fired when plugin settings are saved. Clear caches. |
+| `plugins.before_load` | Action | — | Fired before plugin loading begins. |
+| `plugins.after_load` | Action | — | Fired after all plugins have loaded. |
+
+### Auto-Updater
+
+| Hook | Type | Description |
+|---|---|---|
+| `update.available` | Action | Fired when a newer OwnPay core version is detected. |
+| `update.before` | Action | Fired before a platform update starts. Trigger data backups. |
+| `update.after` | Action | Fired after a successful update. |
+| `update.failed` | Action | Fired when an update execution exception occurs. |
+| `update.rollback` | Action | Fired when the system rolls back to a restoration point. |
+
+## Complete Working Examples
+
+### Sending an Outbound HTTP Request on Payment
+
+```php
+public function register(EventManager $events, Container $container): void
+{
+    $events->addAction('payment.transaction.completed', function (array $txn) use ($container): void {
+        $settings   = $container->get(\OwnPay\Repository\SettingsRepository::class);
+        $webhookUrl = $settings->get('plugin.my-plugin', 'webhook_url') ?? '';
+
+        if ($webhookUrl === '') {
+            return;
+        }
+
+        $payload = json_encode([
+            'event'    => 'payment.completed',
+            'trx_id'   => $txn['trx_id']   ?? '',
+            'amount'   => $txn['amount']    ?? '',
+            'currency' => $txn['currency']  ?? '',
+        ]);
+
+        $ch = curl_init($webhookUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS     => $payload,
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+    }, priority: 15);
+}
+```
+
+### Adding a Custom Settings Tab
+
+```php
+$events->addAction('admin.settings.tabs', function (): void {
+    echo '<li><button data-tab="my-plugin-tab">My Plugin</button></li>';
+});
+```
+
+## Hook Usage Guidelines
+
+| Rule | Detail |
+|---|---|
+| **Register in `register()` only** | Hooks registered in `boot()` bypass brand-context activation checks. |
+| **BCMath for financial values** | `payment.amount.calculate` and `payment.fee.calculate` filters must use `bcadd()`/`bcmul()`/`bcdiv()`. Never cast to `float`. |
+| **Keep filters pure** | Filter callbacks should take input and return output. Avoid mutating `$this` state. |
+| **Respect filter return type** | Returning `null` from a `string` filter corrupts downstream logic. |
+| **Escape echoed HTML** | Action hooks that echo must escape user-sourced values with `htmlspecialchars($val, ENT_QUOTES, 'UTF-8')`. |
+| **Never post to the ledger from hooks** | Do not call `LedgerService::postEntries()` from inside a hook callback. |
